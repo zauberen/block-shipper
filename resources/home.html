@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background-color: #f8f9fa;
+    }
+    .box {
+      border-radius: 15px;
+      padding: 2rem;
+      text-align: center;
+      background-color: white;
+      border: 1px solid #dee2e6;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    button {
+      margin-top: 1rem;
+      padding: 0.5rem 1.5rem;
+      border: none;
+      border-radius: 5px;
+      background-color: #007bff;
+      color: white;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #0056b3;
+    }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div>Want to start a game of tic-tac-toe?</div>
+    <form action="/play" method="get">
+      <button type="submit">Play</button>
+    </form>
+  </div>
+</body>
+</html>

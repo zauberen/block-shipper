@@ -1,0 +1,11 @@
+#+TITLE: Todo list
+
+* Post MVP
+** TODO More complex server list code (get server details, check if it actually is a server)
+** TODO User management
+- [ ] User management screen for admin role
+  - [ ] Add new users
+  - [ ] Edit roles
+  - [ ] Reset passwords
+  - [ ] Change admin password
+- [ ] Iron out user role privileges

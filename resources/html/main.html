@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - MyApp</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/htmx/1.9.10/htmx.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        /* Dark Theme CSS - Same as login/404 pages */
+        :root {
+            --bg-primary: #0a0a0a;
+            --bg-secondary: #1a1a1a;
+            --bg-tertiary: #2a2a2a;
+            --text-primary: #ffffff;
+            --text-secondary: #b0b0b0;
+            --text-muted: #808080;
+            --accent-green: #4ade80;
+            --accent-green-hover: #22c55e;
+            --accent-green-soft: #16a34a;
+            --accent-red: #ef4444;
+            --border-color: #333333;
+            --border-focus: #4ade80;
+            --shadow-soft: rgba(74, 222, 128, 0.1);
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Header Bar */
+        .header {
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 70px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+        }
+
+        .app-logo {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-green) 100%);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-decoration: none;
+        }
+
+        .user-section {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .username {
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .header-icon {
+            width: 24px;
+            height: 24px;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .settings-icon:hover {
+            color: var(--accent-green);
+            transform: rotate(90deg);
+        }
+
+        .logout-icon:hover {
+            color: var(--accent-red);
+        }
+
+        /* Sidebar */
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 70px;
+            width: 280px;
+            height: calc(100vh - 70px);
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border-color);
+            padding: 1.5rem;
+            overflow-y: auto;
+        }
+
+        .nav-section {
+            margin-bottom: 2rem;
+        }
+
+        .nav-button {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            width: 100%;
+            padding: 0.875rem 1rem;
+            background: transparent;
+            border: none;
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: var(--transition);
+            text-decoration: none;
+            font-size: 0.95rem;
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+
+        .nav-button:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .nav-button.active {
+            background: var(--accent-green);
+            color: white;
+        }
+
+        .nav-icon {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+
+        .section-divider {
+            border-top: 1px solid var(--border-color);
+            margin: 1rem 0 0.75rem 0;
+            padding-top: 0.75rem;
+        }
+
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+        }
+
+        .section-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-weight: 600;
+        }
+
+        .shutdown-button {
+            display: flex;
+            align-items: center;
+            gap: 0.375rem;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.375rem 0.5rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: var(--transition);
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .shutdown-button:hover {
+            background: var(--accent-red);
+            border-color: var(--accent-red);
+            color: white;
+        }
+
+        .shutdown-icon {
+            width: 14px;
+            height: 14px;
+        }
+
+        .server-status {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .server-status.online {
+            background: var(--accent-green);
+            box-shadow: 0 0 8px rgba(74, 222, 128, 0.4);
+        }
+
+        .server-status.offline {
+            background: var(--accent-red);
+            box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+        }
+
+        /* Main Content */
+        .main-content {
+            margin-left: 280px;
+            margin-top: 70px;
+            padding: 2rem;
+            height: calc(100vh - 70px);
+            overflow-y: auto;
+            background: var(--bg-primary);
+        }
+
+        .dashboard-title {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: var(--text-primary);
+        }
+
+        .server-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+        }
+
+        .server-widget {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: var(--transition);
+        }
+
+        .server-widget:hover {
+            border-color: var(--accent-green);
+            box-shadow: 0 4px 20px rgba(74, 222, 128, 0.1);
+        }
+
+        .widget-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+        }
+
+        .widget-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .widget-name {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .widget-stats {
+            display: flex;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.875rem;
+        }
+
+        .stat-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .stat-label {
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+
+        .stat-value {
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 1.125rem;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 200px;
+            width: 100%;
+        }
+
+        /* Responsive Design */
+        @media (max-width: 1024px) {
+            .sidebar {
+                width: 250px;
+            }
+            
+            .main-content {
+                margin-left: 250px;
+            }
+            
+            .server-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.3s ease;
+            }
+            
+            .main-content {
+                margin-left: 0;
+            }
+            
+            .header {
+                padding: 1rem;
+            }
+        }
+
+        /* Scrollbar Styling */
+        .sidebar::-webkit-scrollbar,
+        .main-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .sidebar::-webkit-scrollbar-track,
+        .main-content::-webkit-scrollbar-track {
+            background: var(--bg-primary);
+        }
+
+        .sidebar::-webkit-scrollbar-thumb,
+        .main-content::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        .sidebar::-webkit-scrollbar-thumb:hover,
+        .main-content::-webkit-scrollbar-thumb:hover {
+            background: var(--text-muted);
+        }
+    </style>
+</head>
+<body>
+    <!-- Header Bar -->
+    <header class="header">
+        <a href="/" class="app-logo">MyApp</a>
+        <div class="user-section">
+            <span class="username">john.doe</span>
+            <svg class="header-icon settings-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                      d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+            </svg>
+            <svg class="header-icon logout-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" 
+                 onclick="if(confirm('Are you sure you want to log out?')) { window.location.href='/logout'; }">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                      d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+            </svg>
+        </div>
+    </header>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+        <div class="nav-section">
+            <a href="/" class="nav-button active">
+                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                          d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
+                </svg>
+                Home
+            </a>
+            <button class="nav-button">
+                <svg class="nav-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                          d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                </svg>
+                Create Server
+            </button>
+        </div>
+
+        <div class="section-divider">
+            <div class="section-header">
+                <div class="section-label">Servers</div>
+                <button class="shutdown-button" 
+                        onclick="if(confirm('Are you sure you want to shutdown all servers?')) { alert('Shutting down all servers...'); }">
+                    <svg class="shutdown-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                              d="M12 6V4m8 8a8 8 0 11-16 0 8 8 0 0116 0z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
+                              d="M12 6v6"></path>
+                    </svg>
+                    Shutdown All
+                </button>
+            </div>
+        </div>
+
+        <div 
+            hx-get="/api/servers" 
+            hx-trigger="load, every 30s"
+            hx-swap="innerHTML"
+            id="server-list"
+        >
+            <!-- Server list will be loaded here -->
+            <button class="nav-button">
+                <div class="server-status online"></div>
+                Web Server
+            </button>
+            <button class="nav-button">
+                <div class="server-status online"></div>
+                Database Server
+            </button>
+            <button class="nav-button">
+                <div class="server-status offline"></div>
+                Cache Server
+            </button>
+            <button class="nav-button">
+                <div class="server-status online"></div>
+                API Gateway
+            </button>
+            <button class="nav-button">
+                <div class="server-status offline"></div>
+                File Server
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <h1 class="dashboard-title">Server Dashboard</h1>
+        
+        <div class="server-grid">
+            <!-- Web Server Widget -->
+            <div class="server-widget">
+                <div class="widget-header">
+                    <div class="widget-title">
+                        <div class="server-status online"></div>
+                        <span class="widget-name">Web Server</span>
+                    </div>
+                </div>
+                <div class="widget-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Current Users</span>
+                        <span class="stat-value">247</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Peak Today</span>
+                        <span class="stat-value">412</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Uptime</span>
+                        <span class="stat-value">99.8%</span>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="webServerChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Database Server Widget -->
+            <div class="server-widget">
+                <div class="widget-header">
+                    <div class="widget-title">
+                        <div class="server-status online"></div>
+                        <span class="widget-name">Database Server</span>
+                    </div>
+                </div>
+                <div class="widget-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Active Connections</span>
+                        <span class="stat-value">89</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Peak Today</span>
+                        <span class="stat-value">156</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Uptime</span>
+                        <span class="stat-value">100%</span>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="databaseChart"></canvas>
+                </div>
+            </div>
+
+            <!-- API Gateway Widget -->
+            <div class="server-widget">
+                <div class="widget-header">
+                    <div class="widget-title">
+                        <div class="server-status online"></div>
+                        <span class="widget-name">API Gateway</span>
+                    </div>
+                </div>
+                <div class="widget-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Requests/min</span>
+                        <span class="stat-value">1,247</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Peak Today</span>
+                        <span class="stat-value">2,891</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Success Rate</span>
+                        <span class="stat-value">99.2%</span>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="apiChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Cache Server Widget (Offline) -->
+            <div class="server-widget">
+                <div class="widget-header">
+                    <div class="widget-title">
+                        <div class="server-status offline"></div>
+                        <span class="widget-name">Cache Server</span>
+                    </div>
+                </div>
+                <div class="widget-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Status</span>
+                        <span class="stat-value" style="color: var(--accent-red);">Offline</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Last Seen</span>
+                        <span class="stat-value">2h ago</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Uptime</span>
+                        <span class="stat-value">87.4%</span>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <canvas id="cacheChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Sample data for 24-hour charts
+        const hours = Array.from({length: 24}, (_, i) => `${i}:00`);
+        
+        const chartOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        color: '#333333',
+                        borderColor: '#333333'
+                    },
+                    ticks: {
+                        color: '#808080',
+                        maxTicksLimit: 6
+                    }
+                },
+                y: {
+                    grid: {
+                        color: '#333333',
+                        borderColor: '#333333'
+                    },
+                    ticks: {
+                        color: '#808080'
+                    }
+                }
+            }
+        };
+
+        // Web Server Chart
+        new Chart(document.getElementById('webServerChart'), {
+            type: 'line',
+            data: {
+                labels: hours,
+                datasets: [{
+                    data: [45, 52, 48, 61, 78, 94, 112, 134, 189, 223, 267, 312, 289, 345, 398, 412, 387, 356, 298, 234, 187, 143, 98, 67],
+                    borderColor: '#4ade80',
+                    backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: chartOptions
+        });
+
+        // Database Chart
+        new Chart(document.getElementById('databaseChart'), {
+            type: 'line',
+            data: {
+                labels: hours,
+                datasets: [{
+                    data: [23, 28, 31, 35, 42, 48, 56, 67, 78, 89, 95, 103, 98, 112, 126, 134, 142, 156, 148, 139, 128, 98, 76, 54],
+                    borderColor: '#4ade80',
+                    backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: chartOptions
+        });
+
+        // API Gateway Chart
+        new Chart(document.getElementById('apiChart'), {
+            type: 'line',
+            data: {
+                labels: hours,
+                datasets: [{
+                    data: [567, 623, 789, 945, 1123, 1456, 1789, 2001, 2234, 2456, 2678, 2789, 2591, 2734, 2845, 2891, 2756, 2634, 2345, 1987, 1678, 1234, 987, 734],
+                    borderColor: '#4ade80',
+                    backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: chartOptions
+        });
+
+        // Cache Server Chart (offline - showing last known data)
+        new Chart(document.getElementById('cacheChart'), {
+            type: 'line',
+            data: {
+                labels: hours.slice(0, 22), // Only show data up to 2 hours ago
+                datasets: [{
+                    data: [12, 15, 18, 22, 26, 31, 35, 42, 48, 54, 61, 67, 73, 78, 84, 89, 93, 97, 102, 98, 89, 76],
+                    borderColor: '#ef4444',
+                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                    fill: true,
+                    tension: 0.4
+                }]
+            },
+            options: {
+                ...chartOptions,
+                plugins: {
+                    ...chartOptions.plugins,
+                    title: {
+                        display: true,
+                        text: 'Offline - Last 22 hours',
+                        color: '#ef4444',
+                        font: {
+                            size: 12
+                        }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
