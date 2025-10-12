@@ -1,7 +1,7 @@
 (ns com.blockshipper.database.migration
   (:require [clojure.java.jdbc :as jdbc]))
 
-(def server-version "0.0.2")
+(def server-version "0.0.3")
 (def migration-chk-ran (atom nil)) ; Every time this class is reloaded this is reset, whenever check-run-migrations is ran it is set to true.
 (def default-account-sql ; Insert for the admin account.
   (str "insert into users (username, password, role) values ('admin', "
@@ -20,7 +20,7 @@
         "password text not null,"
         ; Roles are: admin (user + add/delete/restore servers and users), user (view status, edit settings, start/stop/restart servers)
         "role text not null default 'user',"
-        "enabled integer not null default 1"
+        "enabled integer not null default 1,"
         "created_at datetime default current_timestamp,"
         "modified_at datetime default current_timestamp"
         ")")
@@ -36,8 +36,11 @@
         "id integer primary key autoincrement,"
         "server_name text,"
         "active_users integer not null,"
-        "time_recorded datetime default current_timestamp"
-        "foreign key (user_id) references users (id))")])
+        "time_recorded datetime default current_timestamp)")
+   (str "create table if not exists sessions ("
+        "sid text primary key,"
+        "session_obj text not null,"
+        "time_created datetime default current_timestamp)")])
 
 (defn has-admin?
   "Determine if the admin user exists."

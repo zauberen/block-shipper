@@ -13,7 +13,8 @@
    :logs-root "~/minecraft/logs"
    :host-method 'screen
    :listen-port 8081
-   :nosql-type 'valkey
+   ;; Also supports valkey/redis. yes-sql means the db is used for sessions.
+   :nosql-type 'yes-sql 
    :nosql-port 6379
    :nosql-host "localhost"
    ;; Used only to start the server, if your port or host are different, make sure to configure those too.
