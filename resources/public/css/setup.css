@@ -1,0 +1,34 @@
+/*
+ * Block Shipper - run and manage Minecraft servers from a web dashboard.
+ * Copyright (C) 2025-2026 zauberen
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Affero General Public License as published
+ * by the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU Affero General Public License for more details.
+ *
+ * You should have received a copy of the GNU Affero General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* First-run setup page (loaded after main.css, which locks the body for the app shell). */
+body.setup-page { height: auto; min-height: 100vh; overflow: auto; }
+.setup-container { max-width: 720px; margin: 0 auto; padding: 3rem 1rem 4rem; }
+.setup-brand {
+    display: flex; align-items: center; justify-content: center; gap: 0.6rem;
+    font-size: 1.75rem; font-weight: 700; margin-bottom: 1.5rem;
+}
+.setup-brand span {
+    background: linear-gradient(135deg, var(--text-primary) 0%, var(--accent-green) 100%);
+    background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+.setup-brand .app-logo-icon { width: 2.5rem; height: 2.5rem; }
+.setup-container .form { max-width: none; }
+@media (max-width: 640px) {
+    .setup-container .form-row { grid-template-columns: 1fr; }
+}

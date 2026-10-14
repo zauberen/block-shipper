@@ -1,6 +1,21 @@
+;; Block Shipper - run and manage Minecraft servers from a web dashboard.
+;; Copyright (C) 2025-2026 zauberen
+;;
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU Affero General Public License as published
+;; by the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU Affero General Public License for more details.
+;;
+;; You should have received a copy of the GNU Affero General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 (ns com.blockshipper.wrappers.path-utils
-  (:require [clojure.java.io :as io]
-            [clojure.string])
+  (:require [clojure.java.io :as io])
   (:import [java.nio.file Paths Files]))
 
 (defn expand-home-path
@@ -26,94 +41,11 @@
   (let [dir-or-file (io/file (expand-home-path path))]
     (.exists dir-or-file)))
 
-;; File reading functions
-(defn read-file-to-string
-  "Reads entire file content into a string"
-  [path]
-  (let [expanded-path (expand-home-path path)]
-    (slurp expanded-path)))
-
 (defn read-file-safe
-  "Safely reads a file, returns nil if file doesn't exist or can't be read"
+  "Reads the file at PATH, returns nil if it doesn't exist or can't be read."
   [path]
   (try
-    (read-file-to-string path)
+    (slurp (expand-home-path path))
     (catch Exception e
       (println (str "Error reading file: " (.getMessage e)))
       nil)))
-
-(defn read-file-lines
-  "Reads file into a vector of lines"
-  [path]
-  (let [expanded-path (expand-home-path path)]
-    (-> expanded-path
-        slurp
-        (clojure.string/split-lines))))
-
-(defn read-file-lines-lazy
-  "Reads file lines lazily (good for large files)"
-  [path]
-  (let [expanded-path (expand-home-path path)]
-    (with-open [reader (io/reader expanded-path)]
-      (doall (line-seq reader)))))
-
-(defn read-file-with-encoding
-  "Reads file with specific encoding (default is UTF-8)"
-  [path & {:keys [encoding] :or {encoding "UTF-8"}}]
-  (let [expanded-path (expand-home-path path)]
-    (slurp expanded-path :encoding encoding)))
-
-;; Directory listing functions
-(defn list-directory
-  "Lists all files and directories in the given directory path."
-  [path]
-  (let [expanded-path (expand-home-path path)
-        dir (io/file expanded-path)]
-    (when (.exists dir)
-      (seq (.listFiles dir)))))
-
-(defn list-directories-only
-  "Lists only directories (not files) in the given path."
-  [path]
-  (->> (list-directory path)
-       (filter #(.isDirectory %))))
-
-(defn list-directory-names
-  "Lists names of all directories in the given directory."
-  [path]
-  (->> (list-directories-only path)
-       (map #(.getName %))))
-
-(defn list-files-only
-  "Lists only files (not directories) in the given path."
-  [path]
-  (->> (list-directory path)
-       (filter #(.isFile %))))
-
-(defn list-with-details
-  "Lists files/dirs with details like size, type, and full path."
-  [path]
-  (->> (list-directory path)
-       (map (fn [file]
-              {:name (.getName file)
-               :path (.getAbsolutePath file)
-               :type (if (.isDirectory file) :directory :file)
-               :size (.length file)
-               :last-modified (.lastModified file)}))))
-
-;; File writing functions
-(defn write-string-to-file
-  "Writes a string to a file, creating directories if needed"
-  [path content]
-  (let [expanded-path (expand-home-path path)
-        file (io/file expanded-path)]
-    ;; Create parent directories if they don't exist
-    (when-let [parent (.getParentFile file)]
-      (.mkdirs parent))
-    (spit expanded-path content)))
-
-(defn append-to-file
-  "Appends content to a file"
-  [path content]
-  (let [expanded-path (expand-home-path path)]
-    (spit expanded-path content :append true)))

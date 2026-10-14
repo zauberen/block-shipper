@@ -1,7 +1,23 @@
+;; Block Shipper - run and manage Minecraft servers from a web dashboard.
+;; Copyright (C) 2025-2026 zauberen
+;;
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU Affero General Public License as published
+;; by the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+;;
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU Affero General Public License for more details.
+;;
+;; You should have received a copy of the GNU Affero General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
 (ns com.blockshipper.api.session
   (:require [clojure.java.jdbc :as jdbc]
+            [clojure.string :as str]
             [buddy.hashers :as hashers]
-            [com.blockshipper.pages.login :as lp]
             [com.blockshipper.database.db :as db])
   (:import java.util.Base64))
 
@@ -26,14 +42,26 @@
   [plain-password]
   (encode (hashers/derive plain-password {:alg :argon2id})))
 
+(defn- https?
+  "True when REQ came in over https, directly or through a reverse proxy."
+  [req]
+  (or (= :https (:scheme req))
+      (= "https" (some-> (get-in req [:headers "x-forwarded-proto"]) str/lower-case))))
+
+(defn session-cookie
+  "The Set-Cookie value that stores SID in the browser for the session lifetime."
+  [req sid]
+  (str "bs-session-id=" sid "; Path=/; HttpOnly; SameSite=Strict; Max-Age=" db/session-ttl-seconds
+       (when (https? req) "; Secure")))
+
 (defn login-success
   "Returns the login success response."
-  [session]
+  [req session]
   {:status 200
-   :body (:sid session)
+   :body ""
    :headers {"Content-Type" "text/plain"
-             "Set-Cookie" (str "bs-session-id=" (:sid session) "; Path=/; HttpOnly")
-             "HX-Redirect" "/"}})
+             "Set-Cookie" (session-cookie req (:sid session))
+             "HX-Redirect" "/admin"}})
 
 (defn login-fail
   "Returns the login fail response."
@@ -53,21 +81,26 @@
         (db/new-session sid session)
         session))
 
+(def ^:private dummy-hash
+  "Checked against when the user doesn't exist, so a login takes as long either way and
+  doesn't reveal which usernames exist."
+  (delay (hash-password (str (java.util.UUID/randomUUID)))))
+
 (defn try-login
   "Try to log into the application."
   [req]
-  (when-let [form-params (:form-params req)]
-    (let [user (get form-params "username")
-          pass (get form-params "password")
-          rs (jdbc/query (db/get-db-spec)
-                         ["select password, role from users where username = ?"
-                          user])]
-      (if (and (> (count rs) 0)
-               (verify-password pass (:password (nth rs 0))))
-        (login-success (initialize-session user (:role (nth rs 0))))
-        (login-fail)))))
+  (let [form-params (:form-params req)
+        user (get form-params "username")
+        pass (get form-params "password")]
+    (if (or (str/blank? user) (str/blank? pass))
+      (login-fail)
+      (let [row (first (jdbc/query (db/get-db-spec)
+                                   ["select password, role from users where username = ? and enabled = 1"
+                                    user]))]
+        (if (and (verify-password pass (or (:password row) @dummy-hash)) row)
+          (login-success req (initialize-session user (:role row)))
+          (login-fail))))))
 
-;;; Wrappers and functions for external use
 (defn get-sid-from-req
   "Returns the session id from the request."
   [req]
@@ -75,10 +108,20 @@
              (not (nil? (get (:cookies req) "bs-session-id"))))
     (:value (get (:cookies req) "bs-session-id"))))
 
+(defn logout
+  "Delete the session and redirect to the login page."
+  [req]
+  (when-let [sid (get-sid-from-req req)]
+    (db/delete-session sid))
+  {:status 302
+   :headers {"Location" "/login"
+             "Set-Cookie" "bs-session-id=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"}
+   :body ""})
+
 (defn has-session?
   "Returns true if the request has a session and the session is valid."
   [req]
-  (let [sid (get-sid-from-req req)]
+  (when-let [sid (get-sid-from-req req)]
     (db/valid-session? sid)))
 
 (defn get-session
@@ -87,9 +130,21 @@
   (when (has-session? req)
     (db/get-session (get-sid-from-req req))))
 
+(defn htmx-request?
+  "Returns true if the request was made by htmx."
+  [req]
+  (= "true" (get-in req [:headers "hx-request"])))
+
+(defn login-redirect
+  "Redirect to the login page, using HX-Redirect for htmx requests so partial swaps don't embed the login page."
+  [req]
+  (if (htmx-request? req)
+    {:status 200 :headers {"HX-Redirect" "/login"} :body ""}
+    {:status 302 :headers {"Location" "/login"} :body ""}))
+
 (defn requires-session
   "Wrapper to check for a valid session before accessing a page."
   [page-fn req]
   (if (has-session? req)
-    (apply page-fn [req])
-    (lp/login-page)))
+    (page-fn req)
+    (login-redirect req)))

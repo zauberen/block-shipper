@@ -1,11 +1,17 @@
 #+TITLE: Todo list
 
-* Post MVP
-** TODO More complex server list code (get server details, check if it actually is a server)
-** TODO User management
-- [ ] User management screen for admin role
-  - [ ] Add new users
-  - [ ] Edit roles
-  - [ ] Reset passwords
-  - [ ] Change admin password
-- [ ] Iron out user role privileges
+* Next
+** TODO Modded servers
+- [ ] Fabric provider (=minecraft/provider.clj= methods for ~:fabric~)
+- [ ] Modrinth modpack import (.mrpack): download mods, pick the matching fabric loader
+- [ ] Auto-update for modded servers (only when every mod supports the new version)
+** TODO Backup retention (keep the last N per schedule) and restore from the UI
+** TODO PROXY protocol support so IP bans and player IPs work behind the proxy
+** TODO Show proxy listener errors on the admin dashboard, not only the server settings tab
+** TODO Rate limit the public Start button and the login endpoint
+** TODO "Log out everywhere" (end a user's sessions on password change or delete)
+
+* Done
+** DONE User management (add users, roles, assignments, password resets)
+** DONE Server creation, console, lists, properties, players, uptime, settings tabs
+** DONE Reverse proxy with start-on-join, auto updates, backups, scheduler
