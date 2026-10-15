@@ -86,9 +86,10 @@
      [:section.card
       [:div.card-header [:h2 "Users"]]
       (when message (ui/alert (:kind message) (:text message)))
-      [:table.table
-       [:thead [:tr [:th "User"] [:th "Role"] [:th "Servers"] [:th]]]
-       [:tbody (for [user (users/all-users)] (user-row me user all-servers))]]
+      [:div.table-scroll
+       [:table.table
+        [:thead [:tr [:th "User"] [:th "Role"] [:th "Servers"] [:th]]]
+        [:tbody (for [user (users/all-users)] (user-row me user all-servers))]]]
       [:p.form-hint {:style "margin-top: 1rem"}
        "Admins can create servers, manage users and moderate every server. "
        "Moderators can manage the servers assigned to them."]]
@@ -252,27 +253,28 @@
        [:p.muted {:style "margin-top: 1rem"} "No unregistered servers found."]
        [:form.form {:hx-post "/api/global/import" :hx-target "#import-card" :hx-swap "outerHTML"
                     :style "max-width: none; margin-top: 1rem"}
-        [:table.table
-         [:thead [:tr [:th] [:th "Folder"] [:th "Id"] [:th "Version"] [:th "Port"] [:th "Notes"]]]
-         [:tbody
-          (for [{:keys [folder slug rename? version port notes]} found]
-            [:tr
-             [:td [:input {:type "checkbox" :name "folders" :value folder :checked true
-                           :aria-label (str "Import " folder)}]]
-             [:td {:style "white-space: nowrap"} [:code folder]]
-             [:td
-              ;; Every row submits its folder and id, so the two lists stay aligned.
-              [:input {:type "hidden" :name "row_folders" :value folder}]
-              [:input {:type "text" :name "row_slugs" :value slug :required true :maxlength 32
-                       :pattern "[a-z0-9][a-z0-9_\\-]{0,31}" :aria-label (str "Id for " folder)
-                       :title "Lowercase letters, numbers, dashes or underscores (max 32)"
-                       :style "min-width: 10rem"}]]
-             [:td (or version [:span.muted "unknown"])]
-             [:td (or port [:span.muted "new"])]
-             [:td
-              (when rename?
-                [:div.muted "The folder will be renamed to the id. Edit it if you like."])
-              (for [n notes] [:div.muted n])]])]]
+        [:div.table-scroll
+         [:table.table
+          [:thead [:tr [:th] [:th "Folder"] [:th "Id"] [:th "Version"] [:th "Port"] [:th "Notes"]]]
+          [:tbody
+           (for [{:keys [folder slug rename? version port notes]} found]
+             [:tr
+              [:td [:input {:type "checkbox" :name "folders" :value folder :checked true
+                            :aria-label (str "Import " folder)}]]
+              [:td {:style "white-space: nowrap"} [:code folder]]
+              [:td
+               ;; Every row submits its folder and id, so the two lists stay aligned.
+               [:input {:type "hidden" :name "row_folders" :value folder}]
+               [:input {:type "text" :name "row_slugs" :value slug :required true :maxlength 32
+                        :pattern "[a-z0-9][a-z0-9_\\-]{0,31}" :aria-label (str "Id for " folder)
+                        :title "Lowercase letters, numbers, dashes or underscores (max 32)"
+                        :style "min-width: 10rem"}]]
+              [:td (or version [:span.muted "unknown"])]
+              [:td (or port [:span.muted "new"])]
+              [:td
+               (when rename?
+                 [:div.muted "The folder will be renamed to the id. Edit it if you like."])
+               (for [n notes] [:div.muted n])]])]]]
         [:p.form-hint "Imported servers keep their world, settings, whitelist and bans. Auto-update starts off; "
          "turn it on in the server's settings once you've made a backup."]
         [:label.checkbox

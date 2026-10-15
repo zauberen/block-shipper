@@ -53,14 +53,15 @@
        running? (ui/alert :info [:span.spinner] "Backup in progress…")
        (= :failed state) (ui/alert :error message))
      (if (seq files)
-       [:table.table
-        [:thead [:tr [:th "File"] [:th "Size"] [:th "Created"]]]
-        [:tbody
-         (for [{:keys [name size modified]} (take 50 files)]
-           [:tr
-            [:td [:a {:href (str base "/" name) :download name} name]]
-            [:td.muted (format-size size)]
-            [:td.muted (u/format-ts modified)]])]]
+       [:div.table-scroll
+        [:table.table
+         [:thead [:tr [:th "File"] [:th "Size"] [:th "Created"]]]
+         [:tbody
+          (for [{:keys [name size modified]} (take 50 files)]
+            [:tr
+             [:td [:a {:href (str base "/" name) :download name} name]]
+             [:td.muted (format-size size)]
+             [:td.muted (u/format-ts modified)]])]]]
        [:p.muted "No backups yet."])
      [:p.form-hint {:style "margin-top: 1rem"} "Stored in " [:code (.getPath (backups/backup-dir server))]]]))
 

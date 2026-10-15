@@ -166,15 +166,16 @@
        [:div.card-header [:h2 "Recent logins"]]
        (let [logins (players/recent-logins id 12)]
          (if (seq logins)
-           [:table.table
-            [:tbody
-             (for [{:keys [player_name joined_at left_at]} logins]
-               [:tr
-                [:td player_name]
-                [:td.muted (u/format-ts joined_at)]
-                [:td (if left_at
-                       [:span.muted (u/format-duration (- left_at joined_at))]
-                       [:span.badge.online "online"])]])]]
+           [:div.table-scroll
+            [:table.table
+             [:tbody
+              (for [{:keys [player_name joined_at left_at]} logins]
+                [:tr
+                 [:td player_name]
+                 [:td.muted (u/format-ts joined_at)]
+                 [:td (if left_at
+                        [:span.muted (u/format-duration (- left_at joined_at))]
+                        [:span.badge.online "online"])]])]]]
            [:p.muted "Nobody has joined yet."]))]
       [:section.card
        [:div.card-header [:h2 "This week"]]

@@ -118,9 +118,18 @@ function bsAutoscroll(root) {
     root.querySelectorAll('[data-autoscroll]').forEach(el => { el.scrollTop = el.scrollHeight; });
 }
 
+// On narrow screens the tab bar scrolls; keep the selected tab visible.
+function bsRevealActiveTab(root) {
+    root.querySelectorAll('.tabs').forEach(tabs => {
+        const tab = tabs.querySelector('.tab.active');
+        if (tab) tabs.scrollLeft = tab.offsetLeft - (tabs.clientWidth - tab.offsetWidth) / 2;
+    });
+}
+
 function bsInit(root) {
     bsInitCharts(root);
     bsAutoscroll(root);
+    bsRevealActiveTab(root);
 }
 
 // Copy buttons (event delegation, so swapped-in buttons work too).
