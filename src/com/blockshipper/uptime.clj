@@ -17,6 +17,7 @@
 (ns com.blockshipper.uptime
   "The uptime log: when each server was started, by whom, and for how long."
   (:require [clojure.java.jdbc :as jdbc]
+            [clojure.string :as str]
             [com.blockshipper.database.db :as db]
             [com.blockshipper.util :as u]))
 
@@ -53,3 +54,19 @@
   [server-id]
   (first (db/run-db-query ["select * from uptime_log where server_id = ? and stopped_at is null order by started_at desc limit 1"
                            server-id])))
+
+(defn top-since
+  "Total uptime (ms) of each of SERVER-IDS between SINCE and NOW, as [{:server_id :uptime}],
+  longest first, at most LIMIT rows. Servers with no uptime in that window are left out."
+  ([server-ids since limit] (top-since server-ids since limit (u/now-ms)))
+  ([server-ids since limit now]
+   (if (empty? server-ids)
+     []
+     (db/run-db-query
+      (-> [(str "select server_id, sum(min(coalesce(stopped_at, ?), ?) - max(started_at, ?)) as uptime "
+                "from uptime_log where coalesce(stopped_at, ?) > ? and started_at < ? and server_id in ("
+                (str/join "," (repeat (count server-ids) "?"))
+                ") group by server_id having uptime > 0 order by uptime desc limit ?")
+           now now since now since now]
+          (into server-ids)
+          (conj limit))))))

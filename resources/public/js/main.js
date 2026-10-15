@@ -30,30 +30,50 @@ function bsFormatTime(ms, long) {
     return d.toLocaleString(undefined, opts);
 }
 
+// DATA is {labels, values} for a single series or {labels, series: [{label, values}]} for several.
 function bsChartConfig(data, compact) {
     const span = data.labels.length > 1 ? data.labels[data.labels.length - 1] - data.labels[0] : 0;
     const long = span > 36 * 3600 * 1000;
     const green = bsCss('--accent-green') || '#4ade80';
+    const multi = Array.isArray(data.series);
+    const datasets = multi
+        ? data.series.map((s, i) => ({
+            label: s.label,
+            data: s.values,
+            borderColor: bsCss('--series-' + (i % 8 + 1)),
+            backgroundColor: bsCss('--series-' + (i % 8 + 1)),
+            stepped: true,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            borderWidth: 2
+        }))
+        : [{
+            label: 'Players online',
+            data: data.values,
+            borderColor: green,
+            backgroundColor: 'rgba(74, 222, 128, 0.12)',
+            fill: true,
+            stepped: true,
+            pointRadius: 0,
+            borderWidth: 2
+        }];
     return {
         type: 'line',
         data: {
             labels: data.labels.map(t => bsFormatTime(t, long)),
-            datasets: [{
-                label: 'Players online',
-                data: data.values,
-                borderColor: green,
-                backgroundColor: 'rgba(74, 222, 128, 0.12)',
-                fill: true,
-                stepped: true,
-                pointRadius: 0,
-                borderWidth: 2
-            }]
+            datasets: datasets
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             animation: false,
-            plugins: { legend: { display: false } },
+            plugins: {
+                legend: {
+                    display: multi,
+                    position: 'bottom',
+                    labels: { color: bsCss('--text-secondary'), boxWidth: 12, boxHeight: 2 }
+                }
+            },
             interaction: { intersect: false, mode: 'index' },
             scales: {
                 x: { display: !compact, ticks: { color: bsCss('--text-muted'), maxTicksLimit: 8 }, grid: { display: false } },
