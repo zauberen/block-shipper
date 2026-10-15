@@ -326,6 +326,17 @@ body {
     .header {
         padding: 1rem;
     }
+
+    /* On the home page the sidebar is the navigation: show it full width instead of the dashboard. */
+    body:has(#main.home-content) .sidebar {
+        transform: none;
+        width: 100%;
+        border-right: none;
+    }
+
+    body:has(#main.home-content) #main {
+        display: none;
+    }
 }
 
 /* Scrollbar Styling */

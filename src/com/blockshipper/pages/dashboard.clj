@@ -60,7 +60,9 @@
 (defn dashboard-content
   [req user]
   (let [visible (remove #(= "disabled" (:host_mode %)) (servers/visible-servers user))]
+    ;; home-content: on phones the sidebar replaces this page (see main.css)
     (layout/main
+     {:class "home-content"}
      [:h1.dashboard-title "Server Dashboard"]
      [:div#server-grid.server-grid {:hx-get "/admin"
                                     :hx-select "#server-grid"

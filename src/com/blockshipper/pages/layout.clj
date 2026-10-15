@@ -50,7 +50,7 @@
     (if (= 25565 port) (public-host req) (str (public-host req) ":" port))))
 
 (defn main
-  "The swappable main content element."
+  "The swappable main content element. BODY may start with an attribute map."
   [& body]
   (into [:main#main.main-content] body))
 
