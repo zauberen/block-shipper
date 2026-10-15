@@ -32,6 +32,15 @@
     --border-color: #333333;
     --border-focus: #4ade80;
     --shadow-soft: rgba(74, 222, 128, 0.1);
+    /* Categorical line colors for multi-server charts, in fixed order (validated against --bg-secondary) */
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
     --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 

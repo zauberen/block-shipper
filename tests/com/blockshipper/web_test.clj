@@ -26,9 +26,14 @@
             [com.blockshipper.minecraft.properties :as props]
             [com.blockshipper.minecraft.world-import-test :as wit]
             [com.blockshipper.minecraft.setup :as setup]
+            [com.blockshipper.pages.dashboard :as dash]
+            [com.blockshipper.players :as players]
             [com.blockshipper.servers :as servers]
+            [com.blockshipper.stats :as stats]
             [com.blockshipper.test-util :as tu]
-            [com.blockshipper.users :as users]))
+            [com.blockshipper.uptime :as uptime]
+            [com.blockshipper.users :as users]
+            [com.blockshipper.util :as u]))
 
 (use-fixtures :each tu/temp-env-fixture)
 
@@ -95,6 +100,32 @@
       (let [body (tu/body-str (bs/app (tu/request :get "/")))]
         (is (str/includes? body "Survival"))
         (is (str/includes? body "data-copy=\"play.example.com:25565\""))))))
+
+(deftest dashboard-test
+  (let [sid (login "admin")
+        a (servers/create! {:name "alpha" :display_name "Alpha" :user_id 1})
+        b (servers/create! {:name "beta" :display_name "Beta" :user_id 1})
+        now (u/now-ms)]
+    (stats/record! (:id a) 2 (- now 60000))
+    (stats/record! (:id b) 1 (- now 60000))
+    (players/open-session! (:id a) "Steve" nil (- now 120000))
+    (uptime/open! (:id b) "admin" (- now 3600000))
+    (testing "one chart with a line per server, recent players and top uptime"
+      (let [body (tu/body-str (bs/app (tu/request :get "/admin" :sid sid)))]
+        (is (str/includes? body "Recent players"))
+        (is (str/includes? body "Steve"))
+        (is (str/includes? body "Most uptime (24h)"))
+        (is (str/includes? body "1h 0m"))
+        (is (= 1 (count (re-seq #"data-chart=" body))))))
+    (testing "the chart shares a time axis across servers"
+      (let [{:keys [labels series]} (dash/combined-chart-data [a b] (- now 900000) 15 now)]
+        (is (= ["Alpha" "Beta"] (map :label series)))
+        (is (every? #(= (count labels) (count (:values %))) series))
+        (is (= [2 1] (map #(last (remove nil? (:values %))) series)))))
+    (testing "servers past the color limit fold into Other"
+      (let [many (for [i (range 10)] {:id (+ 100 i) :name (str "s" i) :display_name (str "S" i)})]
+        (is (= (concat (map #(str "S" %) (range 7)) ["Other"])
+               (map :label (:series (dash/combined-chart-data many (- now 900000) 15 now)))))))))
 
 (deftest create-server-with-world-test
   (let [sid (login "admin")

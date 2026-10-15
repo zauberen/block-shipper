@@ -133,8 +133,49 @@
     (doseq [[t n] [[1000 0] [2000 3] [3000 1]]]
       (stats/record! id n t))
     (is (= [3 1] (map :players (stats/series id 1500))))
+    (is (= {id [{:t 2000 :players 3} {:t 3000 :players 1}]} (stats/series-by-server [id] 1500)))
     (is (= [{:t 1 :players 5} {:t 3 :players 2}]
            (stats/downsample [{:t 1 :players 5} {:t 2 :players 1} {:t 3 :players 2}] 2)))))
+
+(deftest recent-players-test
+  (let [{a :id} (make-server "alpha")
+        {b :id} (make-server "beta")
+        {c :id} (make-server "gamma")]
+    (players/open-session! a "Steve" nil 1000)
+    (players/close-session! a "Steve" 2000)
+    (players/open-session! b "Steve" nil 50000)
+    (players/close-session! b "Steve" 60000)
+    (players/open-session! a "Alex" nil 70000)
+    (players/open-session! c "Notch" nil 80000)
+    (testing "newest first, counting distinct servers joined since the cutoff"
+      (is (= [["Notch" 80000 1 true] ["Alex" 70000 1 true] ["Steve" 50000 2 false]]
+             (map (juxt :player_name :last_login :servers :online)
+                  (players/recent-players [a b c] 0 5))))
+      (is (= 1 (:servers (first (filter #(= "Steve" (:player_name %))
+                                        (players/recent-players [a b c] 10000 5)))))))
+    (testing "only the given servers and at most LIMIT players"
+      (is (= ["Alex" "Steve"] (map :player_name (players/recent-players [a b] 0 5))))
+      (is (= ["Notch"] (map :player_name (players/recent-players [a b c] 0 1))))
+      (is (= [] (players/recent-players [] 0 5))))))
+
+(deftest uptime-top-since-test
+  (let [{a :id} (make-server "alpha")
+        {b :id} (make-server "beta")
+        {c :id} (make-server "gamma")
+        {d :id} (make-server "delta")]
+    ; alpha: 2000 before the window and 3000 inside it, then 1000 more
+    (uptime/close! (uptime/open! a "admin" 8000) "stopped" 13000)
+    (uptime/close! (uptime/open! a "admin" 15000) "stopped" 16000)
+    ; beta: still running, 6000 inside the window
+    (uptime/open! b "admin" 14000)
+    ; gamma: only before the window
+    (uptime/close! (uptime/open! c "admin" 1000) "stopped" 5000)
+    ; delta: a zero-length entry
+    (uptime/close! (uptime/open! d "admin" 12000) "stopped" 12000)
+    (is (= [{:server_id b :uptime 6000} {:server_id a :uptime 4000}]
+           (uptime/top-since [a b c d] 10000 5 20000)))
+    (is (= [{:server_id b :uptime 6000}] (uptime/top-since [a b c d] 10000 1 20000)))
+    (is (= [] (uptime/top-since [] 10000 5 20000)))))
 
 (deftest player-lists-test
   (let [{id :id} (make-server "alpha")]

@@ -16,7 +16,8 @@
 
 (ns com.blockshipper.players
   "Player login sessions (the player_sessions table), used for logins and playtime."
-  (:require [com.blockshipper.database.db :as db]
+  (:require [clojure.string :as str]
+            [com.blockshipper.database.db :as db]
             [com.blockshipper.util :as u]))
 
 (defn open-session!
@@ -71,3 +72,24 @@
   [server-id limit]
   (db/run-db-query ["select player_name, joined_at, left_at from player_sessions where server_id = ? order by joined_at desc limit ?"
                     server-id limit]))
+
+(defn recent-players
+  "The LIMIT players who most recently joined any of SERVER-IDS, newest first:
+  :player_name :last_login :servers (distinct servers joined since SINCE) :online (boolean)."
+  [server-ids since limit]
+  (if (empty? server-ids)
+    []
+    (->> (db/run-db-query
+          (-> [(str "select player_name, max(joined_at) as last_login, "
+                    "count(distinct case when joined_at >= ? then server_id end) as servers, "
+                    "sum(case when left_at is null then 1 else 0 end) as open_sessions "
+                    "from player_sessions where server_id in ("
+                    (str/join "," (repeat (count server-ids) "?"))
+                    ") group by player_name order by last_login desc limit ?")
+               since]
+              (into server-ids)
+              (conj limit)))
+         (mapv (fn [row]
+                 (-> row
+                     (assoc :online (pos? (or (:open_sessions row) 0)))
+                     (dissoc :open_sessions)))))))
