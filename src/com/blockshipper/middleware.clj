@@ -17,13 +17,20 @@
 (ns com.blockshipper.middleware
   "Ring middleware that hardens every response: cross-origin request checks, a request
   body size limit and security headers."
-  (:require [clojure.string :as str])
+  (:require [clojure.string :as str]
+            [com.blockshipper.uploads :as uploads])
   (:import [java.net URI]))
 
 (def max-body-bytes
-  "Largest request body accepted. Uploads are sent in pieces of at most this size
-  (see `com.blockshipper.uploads`)."
+  "Largest request body accepted, except for upload pieces (see `body-limit`)."
   (* 1024 1024))
+
+(defn- body-limit
+  "Upload pieces may be as large as the :upload-chunk-mb setting allows."
+  [req]
+  (if (and (= :put (:request-method req)) (str/starts-with? (:uri req) "/api/uploads/"))
+    (max max-body-bytes (uploads/piece-limit))
+    max-body-bytes))
 
 (defn- default-port
   [scheme]
@@ -84,12 +91,12 @@
       (handler req))))
 
 (defn wrap-body-limit
-  "Refuse request bodies larger than `max-body-bytes` (by Content-Length), so
+  "Refuse request bodies larger than `body-limit` (by Content-Length), so
   unauthenticated requests can't make the server buffer huge forms."
   [handler]
   (fn [req]
     (let [length (some-> (get-in req [:headers "content-length"]) str/trim parse-long)]
-      (if (and length (> length max-body-bytes))
+      (if (and length (> length max-body-bytes) (> length (body-limit req)))
         {:status 413 :headers {"Content-Type" "text/plain"} :body "Request too large."}
         (handler req)))))
 

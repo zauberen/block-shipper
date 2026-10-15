@@ -15,7 +15,8 @@
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 (ns com.blockshipper.web-test
-  (:require [clojure.java.io :as io]
+  (:require [clojure.data.json :as json]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [com.blockshipper :as bs]
@@ -29,6 +30,7 @@
             [com.blockshipper.pages.dashboard :as dash]
             [com.blockshipper.players :as players]
             [com.blockshipper.servers :as servers]
+            [com.blockshipper.settings :as s]
             [com.blockshipper.stats :as stats]
             [com.blockshipper.test-util :as tu]
             [com.blockshipper.uploads :as uploads]
@@ -130,14 +132,25 @@
   [sid size]
   (bs/app (tu/request :post "/api/uploads" :sid sid :form {:filename "world.zip" :size size})))
 
+(defmacro ^:private with-chunk-mb
+  "Run BODY with the :upload-chunk-mb setting at MB."
+  [mb & body]
+  `(let [settings# (s/get-settings)]
+     (with-redefs [s/get-settings (constantly (assoc settings# :upload-chunk-mb ~mb))]
+       ~@body)))
+
+(defn- upload-id
+  [sid size]
+  (get (json/read-str (tu/body-str (start-upload sid size))) "id"))
+
 (defn- put-piece
   [sid id offset ^bytes piece]
   (bs/app (tu/request :put (str "/api/uploads/" id) :sid sid :query (str "offset=" offset) :bytes piece)))
 
 (defn upload!
   "Send BYTES through the upload endpoints in pieces of CHUNK bytes; returns the upload id."
-  [sid ^bytes bytes & {:keys [chunk] :or {chunk uploads/chunk-bytes}}]
-  (let [id (tu/body-str (start-upload sid (alength bytes)))]
+  [sid ^bytes bytes & {:keys [chunk] :or {chunk (uploads/chunk-bytes)}}]
+  (let [id (upload-id sid (alength bytes))]
     (loop [offset 0]
       (when (< offset (alength bytes))
         (let [resp (put-piece sid id offset (java.util.Arrays/copyOfRange bytes (int offset)
@@ -172,7 +185,7 @@
         (create-server! sid (assoc form :name "second" :world_upload id))
         (is (= "again" (slurp (io/file (servers/server-dir (servers/by-slug "second")) "world" "level.dat"))))))
     (testing "an unfinished or unknown upload is reported"
-      (let [id (tu/body-str (start-upload sid 10))]
+      (let [id (upload-id sid 10)]
         (is (str/includes? (tu/body-str (create-server! sid (assoc form :name "partial" :world_upload id)))
                            "upload didn")))
       (is (str/includes? (tu/body-str (create-server! sid (assoc form :name "partial" :world_upload "nope")))
@@ -186,24 +199,44 @@
 (deftest chunked-upload-test
   (let [sid (login "admin")]
     (testing "a retried piece gets 409 with the bytes already received"
-      (let [id (tu/body-str (start-upload sid 6))]
+      (let [id (upload-id sid 6)]
         (is (= "3" (tu/body-str (put-piece sid id 0 (.getBytes "abc")))))
         (let [resp (put-piece sid id 0 (.getBytes "abc"))]
           (is (= 409 (:status resp)))
           (is (= "3" (tu/body-str resp))))
         (is (= "6" (tu/body-str (put-piece sid id 3 (.getBytes "def")))))))
-    (testing "more bytes than announced are refused"
-      (let [id (tu/body-str (start-upload sid 2))]
-        (is (= 400 (:status (put-piece sid id 0 (.getBytes "abc")))))))
+    (testing "more bytes than announced are refused, and the piece can be sent again"
+      (let [id (upload-id sid 2)]
+        (is (= 400 (:status (put-piece sid id 0 (.getBytes "abc")))))
+        (is (= "2" (tu/body-str (put-piece sid id 0 (.getBytes "ab")))))))
     (testing "empty and oversized files are refused up front"
       (is (= 400 (:status (start-upload sid 0))))
       (is (= 400 (:status (start-upload sid (inc uploads/max-upload-bytes))))))
+    (testing "the piece size defaults to 1 MB"
+      (is (= {"chunkSize" (* 1024 1024)} (dissoc (json/read-str (tu/body-str (start-upload sid 3))) "id"))))
     (testing "pieces over the body limit are refused"
-      (let [id (tu/body-str (start-upload sid (* 4 uploads/chunk-bytes)))]
-        (is (= 413 (:status (put-piece sid id 0 (byte-array (inc uploads/chunk-bytes))))))))
+      (let [id (upload-id sid (* 4 1024 1024))]
+        (is (= 413 (:status (put-piece sid id 0 (byte-array (inc (* 1024 1024)))))))))
+    (testing "the piece size follows the :upload-chunk-mb setting"
+      (let [piece (byte-array (* 3 512 1024))
+            id (with-chunk-mb 2
+                 (let [resp (json/read-str (tu/body-str (start-upload sid (* 4 1024 1024))))
+                       id (get resp "id")]
+                   (is (= (* 2 1024 1024) (get resp "chunkSize")))
+                   (is (= (str (alength piece)) (tu/body-str (put-piece sid id 0 piece))))
+                   (is (= 413 (:status (put-piece sid id (alength piece) (byte-array (inc (* 2 1024 1024)))))))
+                   (testing "other requests keep the 1 MB limit"
+                     (is (= 413 (:status (bs/app (tu/request :post "/api/servers" :sid sid :form {:name "x"}
+                                                             :headers {"content-length" (str (* 3 512 1024))}))))))
+                   id))]
+        (testing "and an upload keeps its piece size when the setting changes"
+          (is (= (str (* 2 (alength piece))) (tu/body-str (put-piece sid id (alength piece) piece)))))))
+    (testing "an out of range setting falls back to 1 MB"
+      (with-chunk-mb 100000
+        (is (= (* 1024 1024) (uploads/chunk-bytes)))))
     (testing "uploads belong to the admin who started them"
       (users/create! "other" "password123" "admin")
-      (let [id (tu/body-str (start-upload sid 3))]
+      (let [id (upload-id sid 3)]
         (is (= 400 (:status (put-piece (login "other") id 0 (.getBytes "abc")))))
         (is (= 204 (:status (bs/app (tu/request :delete (str "/api/uploads/" id) :sid sid)))))
         (is (= 400 (:status (put-piece sid id 0 (.getBytes "abc")))))))

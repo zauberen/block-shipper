@@ -316,7 +316,6 @@ async function bsResponseMessage(resp, fallback) {
 
 async function bsUploadWorld(form, file) {
     const base = form.dataset.worldUpload;
-    const chunk = Number(form.dataset.chunkSize) || 1024 * 1024;
     const opts = { credentials: 'same-origin', redirect: 'manual' };
     const start = await fetch(base, {
         ...opts, method: 'POST',
@@ -325,7 +324,8 @@ async function bsUploadWorld(form, file) {
     });
     if (start.type === 'opaqueredirect') throw new Error('Your session has expired. Sign in again.');
     if (!start.ok) throw new Error(await bsResponseMessage(start, 'The upload could not be started'));
-    const id = (await start.text()).trim();
+    // The server picks the piece size (Settings → Server configuration).
+    const { id, chunkSize: chunk } = await start.json();
 
     const began = Date.now();
     let offset = 0;

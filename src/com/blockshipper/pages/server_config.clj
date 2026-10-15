@@ -23,6 +23,7 @@
             [com.blockshipper.response :as r]
             [com.blockshipper.settings :as s]
             [com.blockshipper.ui :as ui]
+            [com.blockshipper.uploads :as uploads]
             [com.blockshipper.util :as u]
             [com.blockshipper.wrappers.path-utils :as pu]))
 
@@ -41,7 +42,8 @@
    :proxy-bind-address "Proxy bind address"
    :nosql-type "Session store"
    :nosql-host "Session store host"
-   :nosql-port "Session store port"})
+   :nosql-port "Session store port"
+   :upload-chunk-mb "Upload piece size (MB)"})
 
 (def session-stores
   [["yes-sql" "Database — sessions are kept in SQLite"]
@@ -73,6 +75,9 @@
                         {:listen-port (u/parse-int (text :listen-port))
                          :nosql-port (u/parse-int (text :nosql-port))
                          :debug (= "1" (get params :debug))
+                         ;; Blank or missing (older forms): the default.
+                         :upload-chunk-mb (u/parse-int (text :upload-chunk-mb)
+                                                       (:upload-chunk-mb (s/get-default-settings)))
                          :nosql-type (some-> (text :nosql-type) not-empty symbol)})
         errors (cond-> []
                  (str/blank? (:app-name settings))
@@ -93,7 +98,9 @@
                  (str/blank? (:nosql-host settings))
                  (conj "Enter the session store host.")
                  (not (valid-port? (:nosql-port settings)))
-                 (conj "The session store port must be between 1 and 65535."))]
+                 (conj "The session store port must be between 1 and 65535.")
+                 (not (<= 1 (or (:upload-chunk-mb settings) 0) uploads/max-chunk-mb))
+                 (conj (str "The upload piece size must be between 1 and " uploads/max-chunk-mb " MB.")))]
     [settings errors]))
 
 (defn form-values
@@ -174,6 +181,11 @@
    [:div.form-row
     (input values running :nosql-host "Only used for Valkey or Redis.")
     (input values running :nosql-port "Only used for Valkey or Redis." {:type "number" :min 1 :max 65535})]
+   (input values running :upload-chunk-mb
+          (str "World archives on the create form are uploaded in pieces of this size. Fewer, larger "
+               "pieces are faster; raise it only if every reverse proxy in front of Block Shipper accepts "
+               "request bodies this large (nginx's default client_max_body_size is 1 MB).")
+          {:type "number" :min 1 :max uploads/max-chunk-mb})
    [:label.checkbox
     [:input {:type "checkbox" :name "debug" :value "1" :checked (boolean (get values :debug))}]
     [:span "Debug mode — enables " [:code "/api/echo"] " for admins, which prints raw requests. Leave off in production."]]])
