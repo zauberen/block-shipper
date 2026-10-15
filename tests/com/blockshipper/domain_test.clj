@@ -115,6 +115,32 @@
     (is (not-any? :online (players/summary id)))
     (is (= ["Alex" "Steve" "Steve"] (map :player_name (players/recent-logins id 10))))))
 
+(deftest imported-sessions-test
+  (let [{id :id} (make-server "alpha")]
+    (players/import-session! id "Notch" "u-n" 500000 300000)
+    (players/open-session! id "Steve" nil 100000)
+    (players/close-session! id "Steve" 160000)
+    (let [summary (into {} (map (juxt :player_name identity)) (players/summary id))]
+      (is (= 500000 (:last_login (summary "Notch"))) "last seen, not the start of the imported playtime")
+      (is (= 300000 (:playtime (summary "Notch"))))
+      (is (= 200000 (:first_joined (summary "Notch")))))
+    (is (= ["Steve"] (map :player_name (players/recent-logins id 10))) "imported sessions are not logins")
+    (is (= ["Notch" "Steve"] (map :player_name (players/recent-players [id] 0 5))))))
+
+(deftest rejected-logins-test
+  (let [{id :id} (make-server "alpha")]
+    (players/record-rejected-login! id "Stranger" nil 1000)
+    (players/record-rejected-login! id "stranger" "u-s" 5000)
+    (players/record-rejected-login! id "Stranger" nil 60000)
+    (players/record-rejected-login! id "Alex" nil 30000)
+    (is (= [{:player_name "Stranger" :uuid "u-s" :attempts 2 :last_attempt_at 60000}
+            {:player_name "Alex" :uuid nil :attempts 1 :last_attempt_at 30000}]
+           (players/rejected-logins id 10)))
+    (players/clear-rejected-login! id "STRANGER")
+    (is (= ["Alex"] (map :player_name (players/rejected-logins id 10))))
+    (servers/delete! id)
+    (is (empty? (players/rejected-logins id 10)))))
+
 (deftest uptime-test
   (let [{id :id} (make-server "alpha")
         e1 (uptime/open! id "admin" 1000)]

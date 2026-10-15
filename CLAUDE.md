@@ -42,7 +42,7 @@ Routes: `/` public dashboard · `/login` `/logout` · `/admin` admin dashboard �
 
 **Domain namespaces** (thin SQL + pure helpers):
 - `servers` — `mc_servers` records; `name` is the immutable slug (directory name), `display_name` is shown in the UI. Port allocation, validation, change hooks (`notify-changed!`, used by the proxy).
-- `users`, `auth`, `global-settings`, `players` (player sessions → last login / playtime), `uptime`, `stats` (players-online samples), `player-lists` (whitelist/ban entries; `server_id` NULL = global list).
+- `users`, `auth`, `global-settings`, `players` (player sessions → last login / playtime; logins refused by the whitelist, recorded from the server log and the proxy and listed on the whitelist tab), `uptime`, `stats` (players-online samples), `player-lists` (whitelist/ban entries; `server_id` NULL = global list).
 
 **Minecraft namespaces** (`src/com/blockshipper/minecraft/`):
 - `instances` — process manager. `start!`/`stop!`/`send-command!`, a ring buffer of console lines, listeners (log/state events) and exit hooks. Enforces the max-running limit by stopping an idle server. Writes a pid file so orphans from a killed Block Shipper are cleaned up.
@@ -55,6 +55,7 @@ Routes: `/` public dashboard · `/login` `/logout` · `/admin` admin dashboard �
 - `mc-update` — Mojang v2 manifest, sha1-verified jar cache in `~/minecraft/jars/vanilla`. `updater` — separate single-thread executor (every 6h) that updates offline servers and marks running ones `pending_update`.
 - `discovery` — finds directories under `:hosting-root` with no `mc_servers` record (Settings → Minecraft → Import) and registers them, importing their whitelist/bans before the first sync. Folders whose name is not a valid slug get a suggested (editable) id and are renamed on import; the original folder name becomes the display name.
 - `world-import` — optional world archive on the create form (chunked upload, see Uploads): detects zip/jar, tar, tar.gz or 7z by magic bytes (Commons Compress + xz), extracts to a temp dir with path-traversal/link/size guards, takes the shallowest directory with `level.dat` and moves it to `<server>/world` (`level-name=world`).
+- `player-import` — Players tab → Import from world: reads `<world>/playerdata` and `stats` (playtime), names from `usercache.json`/player lists/the Mojang API, and adds `imported` player sessions (a closed session of the world's playtime ending when the player was last seen). Known players only get playtime Block Shipper didn't record.
 - `backups` — zips the server dir (minus `server.jar`) to `:backup-root/<slug>/`, pausing saves on running servers; weekly/monthly schedule logic.
 
 **Scheduler** (`scheduler.clj`): one tick per minute — record player samples, stop published servers idle for 15 minutes, keep always-active servers running (unless an admin stopped them), stop-update-restart servers with a pending update once empty, run due scheduled backups. Its exit hook does on-stop backups and applies pending updates.
@@ -69,7 +70,7 @@ Routes: `/` public dashboard · `/login` `/logout` · `/admin` admin dashboard �
 
 ## DB Schema
 
-`db_version`, `users` (role `admin`|`moderator`), `user_servers` (moderator assignments), `mc_servers` (slug, display name, type, version, ports, host mode, list mode, auto-update, backup schedule), `player_sessions`, `uptime_log`, `player_lists`, `global_settings`, `server_samples`, `sessions`, and the legacy `server_stats`. New tables store times as epoch milliseconds.
+`db_version`, `users` (role `admin`|`moderator`), `user_servers` (moderator assignments), `mc_servers` (slug, display name, type, version, ports, host mode, list mode, auto-update, backup schedule), `player_sessions` (`imported` rows come from world files and are not logins), `rejected_logins`, `uptime_log`, `player_lists`, `global_settings`, `server_samples`, `sessions`, and the legacy `server_stats`. New tables store times as epoch milliseconds.
 
 ## Default Configuration
 

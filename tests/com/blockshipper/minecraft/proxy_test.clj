@@ -25,6 +25,7 @@
             [com.blockshipper.minecraft.player-sync :as sync]
             [com.blockshipper.minecraft.protocol :as proto]
             [com.blockshipper.player-lists :as pl]
+            [com.blockshipper.players :as players]
             [com.blockshipper.servers :as servers]
             [com.blockshipper.test-util :as tu])
   (:import [java.io ByteArrayInputStream]
@@ -130,6 +131,7 @@
     (is (str/includes? (login port "Griefer") "banned"))
     (servers/update! (:id server) {:list_mode "whitelist"})
     (is (str/includes? (login port "Stranger") "not whitelisted"))
+    (is (= ["Stranger"] (map :player_name (players/rejected-logins (:id server) 10))))
     (Thread/sleep 300)
     (is (not (inst/running? (:id server))))))
 

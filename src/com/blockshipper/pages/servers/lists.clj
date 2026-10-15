@@ -20,6 +20,7 @@
             [com.blockshipper.minecraft.player-sync :as sync]
             [com.blockshipper.pages.servers.page :as page]
             [com.blockshipper.player-lists :as pl]
+            [com.blockshipper.players :as players]
             [com.blockshipper.response :as r]
             [com.blockshipper.ui :as ui]
             [com.blockshipper.util :as u]))
@@ -38,6 +39,35 @@
   (if (= "whitelist" (:list_mode server))
     (= "whitelist" list-type)
     (= "ban" list-type)))
+
+(defn- rejected-logins
+  "Players SERVER's whitelist recently turned away, with buttons to add them."
+  [server entries base target]
+  (let [listed (set (map (comp str/lower-case :player_name) entries))
+        rejected (remove #(listed (str/lower-case (:player_name %)))
+                         (players/rejected-logins (:id server) 20))
+        button (fn [op player label cls]
+                 [:button.btn.small {:class cls
+                                     :hx-post (str base "/" op) :hx-vals (ui/json-attr {:player player})
+                                     :hx-target target :hx-swap "outerHTML"}
+                  label])]
+    (when (seq rejected)
+      [:div#rejected-logins {:style "margin-top: 1.5rem"}
+       [:div.card-header
+        [:h2 "Recent login attempts"]
+        [:span.muted "Players the whitelist turned away"]]
+       [:div.table-scroll
+        [:table.table
+         [:thead [:tr [:th "Player"] [:th "Attempts"] [:th "Last attempt"] [:th]]]
+         [:tbody
+          (for [{:keys [player_name attempts last_attempt_at]} rejected]
+            [:tr
+             [:td player_name]
+             [:td attempts]
+             [:td.muted (u/format-ts last_attempt_at)]
+             [:td.actions
+              (button "add" player_name "Add" "btn-primary") " "
+              (button "dismiss" player_name "Dismiss" "btn-secondary")]])]]]])))
 
 (defn list-editor
   "The editor for LIST-TYPE. SERVER is nil for the global list."
@@ -84,7 +114,9 @@
                  {:hx-post (str base "/remove") :hx-vals (ui/json-attr {:player (:player_name e)})
                   :hx-target target :hx-swap "outerHTML"}
                  (if (= "ban" list-type) "Unban" "Remove")])]])]]]
-       [:p.muted {:style "margin-top: 1rem"} "No entries."])]))
+       [:p.muted {:style "margin-top: 1rem"} "No entries."])
+     (when (and server (= "whitelist" list-type))
+       (rejected-logins server entries base target))]))
 
 (defn api-change
   "Add or remove a player. Responds with the refreshed editor."
@@ -94,9 +126,18 @@
         message (cond
                   (not (some #{list-type} pl/list-types)) {:kind :error :text "Unknown list."}
                   (not (pl/valid-player-name? player)) {:kind :error :text "Player names are 1-16 letters, numbers or underscores."}
-                  (= "add" op) (if (sync/add-player! server list-type player {:reason reason :created-by (:username user)})
-                                 {:kind :success :text (str player " added.")}
-                                 {:kind :info :text (str player " is already on the list.")})
+                  (= "add" op) (let [uuid (when (and server (= "whitelist" list-type))
+                                            (some #(when (= (str/lower-case player) (str/lower-case (:player_name %))) (:uuid %))
+                                                  (players/rejected-logins (:id server) 100)))
+                                     added (sync/add-player! server list-type player
+                                                             {:uuid uuid :reason reason :created-by (:username user)})]
+                                 (when (and server (= "whitelist" list-type))
+                                   (players/clear-rejected-login! (:id server) player))
+                                 (if added
+                                   {:kind :success :text (str player " added.")}
+                                   {:kind :info :text (str player " is already on the list.")}))
+                  (and server (= "dismiss" op)) (do (players/clear-rejected-login! (:id server) player)
+                                                    {:kind :success :text (str player " dismissed.")})
                   (= "remove" op) (do (sync/remove-player! server list-type player)
                                       {:kind :success :text (str player " removed.")}))]
     (r/h-respond (list-editor server list-type message))))

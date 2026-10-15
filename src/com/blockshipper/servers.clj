@@ -165,7 +165,7 @@
   "Remove server ID and every row that references it. Files are left on disk."
   [id]
   (jdbc/with-db-transaction [tx (db/get-db-spec)]
-    (doseq [table ["user_servers" "player_sessions" "uptime_log" "player_lists" "server_samples"]]
+    (doseq [table ["user_servers" "player_sessions" "uptime_log" "player_lists" "server_samples" "rejected_logins"]]
       (jdbc/execute! tx [(str "delete from " table " where server_id = ?") id]))
     (jdbc/execute! tx ["delete from mc_servers where id = ?" id])))
 

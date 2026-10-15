@@ -17,7 +17,7 @@
 (ns com.blockshipper.database.migration
   (:require [clojure.java.jdbc :as jdbc]))
 
-(def server-version "0.1.2")
+(def server-version "0.1.3")
 (def migration-chk-ran (atom nil)) ; Every time this class is reloaded this is reset, whenever check-run-migrations is ran it is set to true.
 
 (def migrations
@@ -117,7 +117,19 @@
    ;; 0.1.1: scheduled backups are tracked separately from other backups
    "alter table mc_servers add column last_scheduled_backup_at integer"
    ;; 0.1.2: the auto start method is now called kick (next to hold)
-   "update global_settings set value = 'kick' where key = 'start_method' and value = 'auto'"])
+   "update global_settings set value = 'kick' where key = 'start_method' and value = 'auto'"
+   ;; 0.1.3: players imported from world files, and logins refused by the whitelist.
+   ;; An imported session covers the playtime the world recorded, ending when the
+   ;; player was last seen.
+   "alter table player_sessions add column imported integer not null default 0"
+   (str "create table if not exists rejected_logins ("
+        "id integer primary key autoincrement,"
+        "server_id integer not null,"
+        "player_name text not null,"
+        "uuid text,"
+        "attempts integer not null default 1,"
+        "last_attempt_at integer not null)")
+   "create index if not exists rejected_logins_server on rejected_logins (server_id, player_name)"])
 
 (defn run-migrations
   "Initialize a new database. No user is created: the first admin comes from onboarding."
