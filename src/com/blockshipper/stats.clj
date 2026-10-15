@@ -16,7 +16,8 @@
 
 (ns com.blockshipper.stats
   "Periodic samples of how many players are online per server."
-  (:require [com.blockshipper.database.db :as db]
+  (:require [clojure.string :as str]
+            [com.blockshipper.database.db :as db]
             [com.blockshipper.util :as u]))
 
 (def retention-ms (* 30 24 60 60 1000))
@@ -33,6 +34,21 @@
   (mapv (fn [row] {:t (:recorded_at row) :players (:players row)})
         (db/run-db-query ["select players, recorded_at from server_samples where server_id = ? and recorded_at >= ? order by recorded_at"
                           server-id since])))
+
+(defn series-by-server
+  "Samples for each of SERVER-IDS since SINCE (epoch ms), as {server-id [{:t ms :players n}]}, oldest first."
+  [server-ids since]
+  (if (empty? server-ids)
+    {}
+    (->> (db/run-db-query (into [(str "select server_id, players, recorded_at from server_samples "
+                                      "where recorded_at >= ? and server_id in ("
+                                      (str/join "," (repeat (count server-ids) "?"))
+                                      ") order by recorded_at")
+                                 since]
+                                server-ids))
+         (reduce (fn [acc row]
+                   (update acc (:server_id row) (fnil conj []) {:t (:recorded_at row) :players (:players row)}))
+                 {}))))
 
 (defn downsample
   "Reduce SAMPLES to at most N points by taking the max of each bucket, so short peaks still show."
