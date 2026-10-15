@@ -512,7 +512,11 @@ code { overflow-wrap: anywhere; }
 .checkbox input { width: 1.05rem; height: 1.05rem; accent-color: var(--accent-green); }
 .inline-form { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
 .inline-form .form-input { width: auto; flex: 1; min-width: 10rem; }
+.upload-status { display: flex; flex-direction: column; gap: 0.35rem; }
+.upload-status[hidden] { display: none; }
 .upload-progress { width: 100%; accent-color: var(--border-focus); }
+.upload-status-text { overflow-wrap: anywhere; }
+.upload-status-text.error { color: var(--accent-red); }
 fieldset.form-group { border: 1px solid var(--border-color); border-radius: 10px; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
 fieldset.form-group legend { padding: 0 0.4rem; font-weight: 600; color: var(--text-secondary); }
 details.advanced summary { cursor: pointer; color: var(--text-secondary); font-weight: 600; margin-bottom: 0.75rem; }

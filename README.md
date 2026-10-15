@@ -194,16 +194,6 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
     }
-
-    # World archives on the create server form. nginx refuses bodies over 1 MB by default
-    # (413 Request Entity Too Large); raise the limit for this route only.
-    location = /api/servers {
-        client_max_body_size 4g;
-        proxy_request_buffering off;
-        proxy_pass http://127.0.0.1:8081;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
 }
 ```
 

@@ -283,6 +283,134 @@ document.addEventListener('htmx:configRequest', evt => {
     delete elt.bsPromptAnswer;
 });
 
+// World archives on the create server form ([data-world-upload]) are sent in pieces no
+// larger than the request body limit, so reverse proxies with a small body limit don't
+// refuse them; the form is then submitted with only the upload id.
+function bsFormatBytes(n) {
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+    return (i === 0 ? n : n.toFixed(n < 10 ? 1 : 0)) + ' ' + units[i];
+}
+
+// The upload status under the file field: a progress bar and a line of text.
+function bsUploadStatus(form, { percent, text, error }) {
+    const box = form.querySelector('.upload-status');
+    if (!box) return;
+    const bar = box.querySelector('progress');
+    const label = box.querySelector('.upload-status-text');
+    box.hidden = false;
+    bar.hidden = !!error;
+    // Without a value the bar shows as busy (indeterminate).
+    if (percent === null) bar.removeAttribute('value'); else if (percent !== undefined) bar.value = percent;
+    label.textContent = text;
+    label.classList.toggle('error', !!error);
+}
+
+// Text of a failed response, or a fallback when it is an HTML page (a proxy's error page).
+async function bsResponseMessage(resp, fallback) {
+    const type = resp.headers.get('Content-Type') || '';
+    const text = type.startsWith('text/plain') ? (await resp.text()).trim() : '';
+    return text || `${fallback} (HTTP ${resp.status})`;
+}
+
+async function bsUploadWorld(form, file) {
+    const base = form.dataset.worldUpload;
+    const chunk = Number(form.dataset.chunkSize) || 1024 * 1024;
+    const opts = { credentials: 'same-origin', redirect: 'manual' };
+    const start = await fetch(base, {
+        ...opts, method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ filename: file.name, size: file.size })
+    });
+    if (start.type === 'opaqueredirect') throw new Error('Your session has expired. Sign in again.');
+    if (!start.ok) throw new Error(await bsResponseMessage(start, 'The upload could not be started'));
+    const id = (await start.text()).trim();
+
+    const began = Date.now();
+    let offset = 0;
+    let failures = 0;
+    const show = () => {
+        const percent = file.size ? Math.floor(offset * 100 / file.size) : 100;
+        const seconds = (Date.now() - began) / 1000;
+        const rate = seconds > 1 ? ` · ${bsFormatBytes(offset / seconds)}/s` : '';
+        bsUploadStatus(form, {
+            percent,
+            text: `Uploading ${file.name}: ${bsFormatBytes(offset)} of ${bsFormatBytes(file.size)} (${percent}%)${rate}`
+        });
+    };
+    while (offset < file.size) {
+        show();
+        let resp = null;
+        try {
+            resp = await fetch(`${base}/${encodeURIComponent(id)}?offset=${offset}`, {
+                ...opts, method: 'PUT',
+                headers: { 'Content-Type': 'application/octet-stream' },
+                body: file.slice(offset, offset + chunk)
+            });
+        } catch (e) {
+            // Network error: retried below.
+        }
+        if (resp && resp.type === 'opaqueredirect') throw new Error('Your session has expired. Sign in again.');
+        // 409: the server already has a different amount (a retried piece arrived); resume there.
+        if (resp && (resp.ok || resp.status === 409)) {
+            const received = Number(await resp.text());
+            if (!Number.isFinite(received)) throw new Error('Unexpected response from the server.');
+            offset = received;
+            failures = 0;
+            continue;
+        }
+        if (resp && resp.status >= 400 && resp.status < 500 && resp.status !== 408 && resp.status !== 429) {
+            throw new Error(await bsResponseMessage(resp, 'The upload failed'));
+        }
+        if (++failures > 5) throw new Error('The upload was interrupted. Check your connection and try again.');
+        bsUploadStatus(form, { text: `Connection problem, retrying (${failures} of 5)…` });
+        await new Promise(r => setTimeout(r, 1000 * 2 ** failures));
+    }
+    return id;
+}
+
+document.addEventListener('htmx:confirm', evt => {
+    const form = evt.detail.elt;
+    if (!(form instanceof HTMLFormElement) || !form.dataset.worldUpload) return;
+    const input = form.querySelector('[data-world-file]');
+    const file = input && input.files[0];
+    const hidden = form.elements['world_upload'];
+    // Nothing chosen, or this file was already uploaded (e.g. the request failed and is retried).
+    if (!file || form.bsUploaded === file) return;
+    evt.preventDefault();
+    const button = form.querySelector('[type=submit]');
+    button.disabled = true;
+    input.disabled = true;
+    bsUploadWorld(form, file).then(id => {
+        const previous = hidden.value;
+        if (previous && previous !== id) {
+            fetch(`${form.dataset.worldUpload}/${encodeURIComponent(previous)}`, { method: 'DELETE', credentials: 'same-origin' });
+        }
+        hidden.value = id;
+        form.bsUploaded = file;
+        input.disabled = false;
+        bsUploadStatus(form, { percent: null, text: `Uploaded ${file.name}. Extracting the world and creating the server…` });
+        evt.detail.issueRequest(true);
+    }, err => {
+        button.disabled = false;
+        input.disabled = false;
+        bsUploadStatus(form, { error: true, text: err.message || 'The upload failed.' });
+    });
+});
+document.addEventListener('htmx:sendError', evt => {
+    const form = evt.detail.elt;
+    if (form instanceof HTMLFormElement && form.dataset.worldUpload) {
+        bsUploadStatus(form, { error: true, text: 'Could not reach Block Shipper. Try again.' });
+    }
+});
+document.addEventListener('htmx:responseError', evt => {
+    const form = evt.detail.elt;
+    if (form instanceof HTMLFormElement && form.dataset.worldUpload) {
+        bsUploadStatus(form, { error: true, text: `Creating the server failed (HTTP ${evt.detail.xhr.status}). Try again.` });
+    }
+});
+
 // Swapped elements may replace their target, so rescan the document (init is idempotent).
 document.addEventListener('htmx:afterSettle', () => bsInit(document));
 document.addEventListener('DOMContentLoaded', () => bsInit(document));
