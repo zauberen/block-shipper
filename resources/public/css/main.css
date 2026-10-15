@@ -325,6 +325,8 @@ body {
 
     .main-content {
         margin-left: 0;
+        /* Tables and the tab bar scroll on their own; the page itself never scrolls sideways. */
+        overflow-x: hidden;
     }
 
     .header {
