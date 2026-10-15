@@ -326,6 +326,27 @@ body {
     .header {
         padding: 1rem;
     }
+
+    /* Room for the username and icons: keep only the logo icon. */
+    .app-logo span {
+        display: none;
+    }
+
+    /* On the home page the sidebar is the navigation: show it full width instead of the dashboard. */
+    body:has(#main.home-content) .sidebar {
+        transform: none;
+        width: 100%;
+        border-right: none;
+    }
+
+    body:has(#main.home-content) #main {
+        display: none;
+    }
+
+    /* Tables keep their rows on one line and scroll sideways inside .table-scroll. */
+    .table th, .table td {
+        white-space: nowrap;
+    }
 }
 
 /* Scrollbar Styling */
@@ -419,6 +440,7 @@ a { color: var(--accent-green); }
 .card-header h2 { font-size: 1.05rem; font-weight: 600; }
 .panel-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.5rem; }
 .panel-grid .card + .card { margin-top: 0; }
+.panel-grid > * { min-width: 0; }
 .span-2 { grid-column: span 2; }
 .chart-container.tall { height: 260px; }
 .chart-empty { height: 100%; display: flex; align-items: center; justify-content: center; }
@@ -444,6 +466,7 @@ a.server-widget { display: block; color: inherit; text-decoration: none; }
 .tab.active { color: var(--accent-green); border-bottom-color: var(--accent-green); }
 
 /* Tables */
+.table-scroll { overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .table th { text-align: left; color: var(--text-muted); font-weight: 600; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
 .table th, .table td { padding: 0.55rem 0.5rem; border-bottom: 1px solid var(--border-color); vertical-align: middle; }

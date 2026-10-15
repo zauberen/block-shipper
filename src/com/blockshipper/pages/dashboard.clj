@@ -79,15 +79,16 @@
     [:section.card
      [:div.card-header [:h2 "Recent players"]]
      (if (seq players)
-       [:table.table
-        [:thead [:tr [:th "Player"] [:th "Last connected"] [:th "Servers (24h)"]]]
-        [:tbody
-         (for [{:keys [player_name last_login servers online]} players]
-           [:tr
-            [:td player_name
-             (when online [:span.badge.online {:style "margin-left: .5rem"} "online"])]
-            [:td.muted (u/format-ts last_login)]
-            [:td servers]])]]
+       [:div.table-scroll
+        [:table.table
+         [:thead [:tr [:th "Player"] [:th "Last connected"] [:th "Servers (24h)"]]]
+         [:tbody
+          (for [{:keys [player_name last_login servers online]} players]
+            [:tr
+             [:td player_name
+              (when online [:span.badge.online {:style "margin-left: .5rem"} "online"])]
+             [:td.muted (u/format-ts last_login)]
+             [:td servers]])]]]
        [:p.muted "Nobody has joined yet."])]))
 
 (defn top-uptime-card
@@ -97,16 +98,17 @@
     [:section.card
      [:div.card-header [:h2 "Most uptime (24h)"]]
      (if (seq rows)
-       [:table.table
-        [:thead [:tr [:th "Server"] [:th "Status"] [:th "Uptime"]]]
-        [:tbody
-         (for [{:keys [server_id uptime]} rows
-               :let [server (by-id server_id)
-                     status (layout/server-status server)]]
-           [:tr
-            [:td [:a (ui/nav-attrs (str "/admin/servers/" (:name server))) (servers/display-name server)]]
-            [:td [:span.status-inline (ui/status-dot status) [:span.muted (ui/status-label status)]]]
-            [:td (u/format-duration uptime)]])]]
+       [:div.table-scroll
+        [:table.table
+         [:thead [:tr [:th "Server"] [:th "Status"] [:th "Uptime"]]]
+         [:tbody
+          (for [{:keys [server_id uptime]} rows
+                :let [server (by-id server_id)
+                      status (layout/server-status server)]]
+            [:tr
+             [:td [:a (ui/nav-attrs (str "/admin/servers/" (:name server))) (servers/display-name server)]]
+             [:td [:span.status-inline (ui/status-dot status) [:span.muted (ui/status-label status)]]]
+             [:td (u/format-duration uptime)]])]]]
        [:p.muted "No server has run in the last 24 hours."])]))
 
 (defn dashboard-content
@@ -114,7 +116,9 @@
   (let [visible (vec (remove #(= "disabled" (:host_mode %)) (servers/visible-servers user)))
         now (u/now-ms)
         since (- now day-ms)]
+    ;; home-content: on phones the sidebar replaces this page (see main.css)
     (layout/main
+     {:class "home-content"}
      [:h1.dashboard-title "Server Dashboard"]
      [:div#dashboard-panels {:hx-get "/admin"
                              :hx-select "#dashboard-panels"

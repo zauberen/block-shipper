@@ -49,32 +49,33 @@
      [:div.card-header [:h2 (str "Players (" (count summary) ")")]]
      (when message (ui/alert (:kind message) (:text message)))
      (if (seq summary)
-       [:table.table
-        [:thead [:tr [:th "Player"] [:th "Status"] [:th "Last login"] [:th "Playtime"] [:th]]]
-        [:tbody
-         (for [{:keys [player_name last_login playtime]} summary
-               :let [k (str/lower-case player_name)
-                     ban (bans k)]]
-           [:tr
-            [:td player_name]
-            [:td (cond
-                   ban [:span.badge.banned (if (local-bans k) "banned" "banned (global)")]
-                   (online k) [:span.badge.online "online"]
-                   :else [:span.badge "offline"])
-             (when (ops k) [:span.badge.op {:style "margin-left: .5rem"} "op"])]
-            [:td.muted (u/format-ts last_login)]
-            [:td (u/format-duration playtime)]
-            [:td.actions
-             (if (ops k)
-               (action "deop" player_name "De-op" "btn-secondary" (str "Remove operator status from " player_name "?"))
-               (action "op" player_name "OP" "btn-secondary" (str "Make " player_name " an operator?")))
-             " "
-             (when (online k) (action "kick" player_name "Kick" "btn-secondary" (str "Kick " player_name "?")))
-             " "
-             (cond
-               (local-bans k) (action "unban" player_name "Unban" "btn-secondary")
-               ban nil
-               :else (action "ban" player_name "Ban" "btn-danger" (str "Ban " player_name "?")))]])]]
+       [:div.table-scroll
+        [:table.table
+         [:thead [:tr [:th "Player"] [:th "Status"] [:th "Last login"] [:th "Playtime"] [:th]]]
+         [:tbody
+          (for [{:keys [player_name last_login playtime]} summary
+                :let [k (str/lower-case player_name)
+                      ban (bans k)]]
+            [:tr
+             [:td player_name]
+             [:td (cond
+                    ban [:span.badge.banned (if (local-bans k) "banned" "banned (global)")]
+                    (online k) [:span.badge.online "online"]
+                    :else [:span.badge "offline"])
+              (when (ops k) [:span.badge.op {:style "margin-left: .5rem"} "op"])]
+             [:td.muted (u/format-ts last_login)]
+             [:td (u/format-duration playtime)]
+             [:td.actions
+              (if (ops k)
+                (action "deop" player_name "De-op" "btn-secondary" (str "Remove operator status from " player_name "?"))
+                (action "op" player_name "OP" "btn-secondary" (str "Make " player_name " an operator?")))
+              " "
+              (when (online k) (action "kick" player_name "Kick" "btn-secondary" (str "Kick " player_name "?")))
+              " "
+              (cond
+                (local-bans k) (action "unban" player_name "Unban" "btn-secondary")
+                ban nil
+                :else (action "ban" player_name "Ban" "btn-danger" (str "Ban " player_name "?")))]])]]]
        [:p.muted "Nobody has joined this server yet."])]))
 
 (defn players-tab
@@ -119,16 +120,17 @@
        [:h2 "Uptime log"]
        [:span.muted (str "Online " (u/format-duration week-total) " in the last 7 days")]]
       (if (seq entries)
-        [:table.table
-         [:thead [:tr [:th "Started"] [:th "Stopped"] [:th "Duration"] [:th "Started by"] [:th "Reason stopped"]]]
-         [:tbody
-          (for [{:keys [started_at stopped_at duration started_by stop_reason]} entries]
-            [:tr
-             [:td (u/format-ts started_at)]
-             [:td (if stopped_at (u/format-ts stopped_at) [:span.badge.online "running"])]
-             [:td (u/format-duration duration)]
-             [:td started_by]
-             [:td.muted stop_reason]])]]
+        [:div.table-scroll
+         [:table.table
+          [:thead [:tr [:th "Started"] [:th "Stopped"] [:th "Duration"] [:th "Started by"] [:th "Reason stopped"]]]
+          [:tbody
+           (for [{:keys [started_at stopped_at duration started_by stop_reason]} entries]
+             [:tr
+              [:td (u/format-ts started_at)]
+              [:td (if stopped_at (u/format-ts stopped_at) [:span.badge.online "running"])]
+              [:td (u/format-duration duration)]
+              [:td started_by]
+              [:td.muted stop_reason]])]]]
         [:p.muted "This server has not been started yet."])]]))
 
 (page/register-tab! "players" players-tab)

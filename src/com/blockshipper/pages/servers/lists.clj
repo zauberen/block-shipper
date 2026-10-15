@@ -67,22 +67,23 @@
         [:input.form-input {:name "reason" :placeholder "Reason (optional)"}])
       [:button.btn.btn-primary {:type "submit"} (if (= "ban" list-type) "Ban" "Add")]]
      (if (seq entries)
-       [:table.table {:style "margin-top: 1rem"}
-        [:thead [:tr [:th "Player"] (when (= "ban" list-type) [:th "Reason"]) [:th "Added"] [:th]]]
-        [:tbody
-         (for [e entries]
-           [:tr
-            [:td (:player_name e) " "
-             (when (:inherited e) [:span.badge.inherited "global"])]
-            (when (= "ban" list-type) [:td.muted (:reason e)])
-            [:td.muted (u/format-ts (:created_at e)) (when (:created_by e) (str " by " (:created_by e)))]
-            [:td.actions
-             (if (:inherited e)
-               [:span.muted "Edit in global settings"]
-               [:button.btn.btn-secondary.small
-                {:hx-post (str base "/remove") :hx-vals (ui/json-attr {:player (:player_name e)})
-                 :hx-target target :hx-swap "outerHTML"}
-                (if (= "ban" list-type) "Unban" "Remove")])]])]]
+       [:div.table-scroll
+        [:table.table {:style "margin-top: 1rem"}
+         [:thead [:tr [:th "Player"] (when (= "ban" list-type) [:th "Reason"]) [:th "Added"] [:th]]]
+         [:tbody
+          (for [e entries]
+            [:tr
+             [:td (:player_name e) " "
+              (when (:inherited e) [:span.badge.inherited "global"])]
+             (when (= "ban" list-type) [:td.muted (:reason e)])
+             [:td.muted (u/format-ts (:created_at e)) (when (:created_by e) (str " by " (:created_by e)))]
+             [:td.actions
+              (if (:inherited e)
+                [:span.muted "Edit in global settings"]
+                [:button.btn.btn-secondary.small
+                 {:hx-post (str base "/remove") :hx-vals (ui/json-attr {:player (:player_name e)})
+                  :hx-target target :hx-swap "outerHTML"}
+                 (if (= "ban" list-type) "Unban" "Remove")])]])]]]
        [:p.muted {:style "margin-top: 1rem"} "No entries."])]))
 
 (defn api-change
