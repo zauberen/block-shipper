@@ -22,6 +22,8 @@ body {
     color: var(--text-primary);
     line-height: 1.6;
     height: 100vh;
+    /* On phones 100vh includes the area behind the browser's bars; dvh is the visible height. */
+    height: 100dvh;
     overflow: hidden;
 }
 
@@ -98,6 +100,7 @@ body {
     top: 70px;
     width: 280px;
     height: calc(100vh - 70px);
+    height: calc(100dvh - 70px);
     background: var(--bg-secondary);
     border-right: 1px solid var(--border-color);
     padding: 1.5rem;
@@ -217,6 +220,7 @@ body {
     margin-top: 70px;
     padding: 2rem;
     height: calc(100vh - 70px);
+    height: calc(100dvh - 70px);
     overflow-y: auto;
     background: var(--bg-primary);
 }
@@ -325,6 +329,12 @@ body {
 
     .header {
         padding: 1rem;
+    }
+
+    /* Room to scroll the last items clear of the mobile browser's bottom bar. */
+    .sidebar,
+    .main-content {
+        padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
     }
 
     /* Room for the username and icons: keep only the logo icon. */
@@ -511,7 +521,7 @@ details.advanced summary { cursor: pointer; color: var(--text-secondary); font-w
     padding: 0.75rem; height: 320px; overflow-y: auto; font-size: 0.8rem; line-height: 1.45;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-all;
 }
-.log-view.console { height: calc(100vh - 380px); min-height: 300px; }
+.log-view.console { height: calc(100vh - 380px); height: calc(100dvh - 380px); min-height: 300px; }
 .log-line.command { color: var(--accent-green); }
 
 /* Copy field */
