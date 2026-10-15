@@ -327,6 +327,11 @@ body {
         padding: 1rem;
     }
 
+    /* Room for the username and icons: keep only the logo icon. */
+    .app-logo span {
+        display: none;
+    }
+
     /* On the home page the sidebar is the navigation: show it full width instead of the dashboard. */
     body:has(#main.home-content) .sidebar {
         transform: none;
