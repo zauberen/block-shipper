@@ -307,6 +307,45 @@
                                 [:headers "HX-Redirect"])))
         (is (nil? (servers/by-slug "alpha")))))))
 
+(deftest player-whitelist-test
+  (with-redefs [com.blockshipper.minecraft.player-sync/lookup-uuid (constantly nil)
+                com.blockshipper.minecraft.player-sync/lookup-name (constantly nil)]
+    (let [sid (login "admin")]
+      (create-server! sid {:display_name "A" :name "alpha" :mc_version "1.21.4" :eula "1" :mem_min "16M" :mem_max "64M"})
+      (let [{id :id :as server} (servers/by-slug "alpha")
+            uuid "11111111-1111-4111-8111-111111111111"
+            dat (io/file (servers/server-dir server) "world" "playerdata" (str uuid ".dat"))]
+        (testing "import from world"
+          (io/make-parents dat)
+          (spit dat "nbt")
+          (spit (io/file (servers/server-dir server) "usercache.json")
+                (str "[{\"name\":\"Alex\",\"uuid\":\"" uuid "\"}]"))
+          (let [body (tu/body-str (bs/app (tu/request :post "/api/servers/alpha/players/import" :sid sid)))]
+            (is (str/includes? body "Found 1 player in the world: 1 new"))
+            (is (str/includes? body ">Alex<"))
+            (is (str/includes? body "/api/servers/alpha/players/whitelist"))))
+        (testing "whitelist from the players tab"
+          (let [body (tu/body-str (bs/app (tu/request :post "/api/servers/alpha/players/whitelist" :sid sid
+                                                      :form {:player "Alex"})))]
+            (is (str/includes? body "Alex added to the whitelist"))
+            (is (not (str/includes? body "/api/servers/alpha/players/whitelist"))))
+          (is (= uuid (:uuid (com.blockshipper.player-lists/find-entry id "whitelist" "Alex")))))
+        (testing "refused logins show on the whitelist tab"
+          (players/record-rejected-login! id "Stranger" nil)
+          (players/record-rejected-login! id "Visitor" nil)
+          (players/record-rejected-login! id "Alex" nil)
+          (let [body (tu/body-str (bs/app (tu/request :get "/admin/servers/alpha/whitelist" :sid sid)))]
+            (is (str/includes? body "Recent login attempts"))
+            (is (str/includes? body "Stranger"))
+            (is (not (re-find #"(?s)rejected-logins.*Alex" body)) "players already listed are hidden"))
+          (let [body (tu/body-str (bs/app (tu/request :post "/api/servers/alpha/lists/whitelist/add" :sid sid
+                                                      :form {:player "Stranger"})))]
+            (is (str/includes? body "Stranger added")))
+          (bs/app (tu/request :post "/api/servers/alpha/lists/whitelist/dismiss" :sid sid :form {:player "Visitor"}))
+          (is (= ["Alex"] (map :player_name (players/rejected-logins id 10))))
+          (is (not (str/includes? (tu/body-str (bs/app (tu/request :get "/admin/servers/alpha/whitelist" :sid sid)))
+                                  "Recent login attempts"))))))))
+
 (deftest debug-echo-test
   (testing "with debug off the echo endpoint is a 404 and other routes still work"
     (is (= 404 (:status (bs/app (tu/request :get "/api/echo")))))

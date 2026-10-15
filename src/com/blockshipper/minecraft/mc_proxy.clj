@@ -28,6 +28,7 @@
             [com.blockshipper.minecraft.instances :as inst]
             [com.blockshipper.minecraft.player-sync :as sync]
             [com.blockshipper.minecraft.protocol :as proto]
+            [com.blockshipper.players :as players]
             [com.blockshipper.servers :as servers]
             [com.blockshipper.settings :as s])
   (:import [java.io InputStream OutputStream]
@@ -90,13 +91,16 @@
         :else (str name " is offline")))))
 
 (defn- player-blocked
-  "A kick message if PLAYER may not join SERVER (banned or not whitelisted)."
+  "A kick message if PLAYER may not join SERVER (banned or not whitelisted). Players
+  turned away by the whitelist are recorded so admins can add them."
   [server player]
   (let [{:keys [whitelist ban]} (sync/desired server)
         has? (fn [entries] (some #(= (str/lower-case player) (str/lower-case (:player_name %))) entries))]
     (cond
       (has? ban) "You are banned from this server."
-      (and (= "whitelist" (:list_mode server)) (not (has? whitelist))) "You are not whitelisted on this server.")))
+      (and (= "whitelist" (:list_mode server)) (not (has? whitelist)))
+      (do (players/record-rejected-login! (:id server) player nil)
+          "You are not whitelisted on this server."))))
 
 (defn login-action
   "What to do with PLAYER who tries to join SERVER while it is not ready, starting it if

@@ -18,6 +18,7 @@
   "Players and uptime tabs."
   (:require [clojure.string :as str]
             [com.blockshipper.minecraft.instances :as inst]
+            [com.blockshipper.minecraft.player-import :as player-import]
             [com.blockshipper.minecraft.player-sync :as sync]
             [com.blockshipper.pages.servers.page :as page]
             [com.blockshipper.player-lists :as pl]
@@ -34,7 +35,9 @@
   (let [id (:id server)
         online (set (map str/lower-case (inst/online-players id)))
         ops (or ops (sync/op-names server))
-        bans (into {} (map (juxt (comp str/lower-case :player_name) identity)) (:ban (sync/desired server)))
+        desired (sync/desired server)
+        bans (into {} (map (juxt (comp str/lower-case :player_name) identity)) (:ban desired))
+        whitelisted (set (map (comp str/lower-case :player_name) (:whitelist desired)))
         local-bans (set (map (comp str/lower-case :player_name) (pl/entries id "ban")))
         summary (players/summary id)
         api (str "/api/servers/" (:name server) "/players/")
@@ -46,7 +49,13 @@
                                      :hx-confirm confirm}
                   label])]
     [:section#players-table.card
-     [:div.card-header [:h2 (str "Players (" (count summary) ")")]]
+     [:div.card-header
+      [:h2 (str "Players (" (count summary) ")")]
+      [:button.btn.btn-secondary.small
+       {:hx-post (str api "import") :hx-target "#players-table" :hx-swap "outerHTML"
+        :hx-disabled-elt "this"
+        :title "Create entries for players found in the world's player data"}
+       "Import from world"]]
      (when message (ui/alert (:kind message) (:text message)))
      (if (seq summary)
        [:div.table-scroll
@@ -72,11 +81,15 @@
               " "
               (when (online k) (action "kick" player_name "Kick" "btn-secondary" (str "Kick " player_name "?")))
               " "
+              (when-not (whitelisted k)
+                (action "whitelist" player_name "Whitelist" "btn-secondary"))
+              " "
               (cond
                 (local-bans k) (action "unban" player_name "Unban" "btn-secondary")
                 ban nil
                 :else (action "ban" player_name "Ban" "btn-danger" (str "Ban " player_name "?")))]])]]]
-       [:p.muted "Nobody has joined this server yet."])]))
+       [:p.muted "Nobody has joined this server yet. "
+        "If the world was played before, use Import from world to list its players."])]))
 
 (defn players-tab
   [_req _user server]
@@ -95,6 +108,11 @@
                                    {:kind :success :text (str player " is banned.")})
                   (= "unban" op) (do (sync/remove-player! server "ban" player)
                                      {:kind :success :text (str player " is unbanned.")})
+                  (= "whitelist" op) (let [uuid (some #(when (= (str/lower-case player) (str/lower-case (:player_name %))) (:uuid %))
+                                                      (players/summary (:id server)))]
+                                       (sync/add-player! server "whitelist" player {:uuid uuid :created-by (:username user)})
+                                       (players/clear-rejected-login! (:id server) player)
+                                       {:kind :success :text (str player " added to the whitelist.")})
                   (= "kick" op) (if (inst/send-command! (:id server) (str "kick " player))
                                   {:kind :success :text (str player " was kicked.")}
                                   {:kind :error :text "The server is not running."})
@@ -105,6 +123,20 @@
         ops (when (= :sent result)
               ((if (= "op" op) conj disj) (sync/op-names server) (str/lower-case player)))]
     (r/h-respond (players-table server message ops))))
+
+(defn api-import
+  "Create player entries from the world's player data."
+  [_req _user server]
+  (let [{:keys [found imported updated unnamed]} (player-import/import! server)
+        message (if (zero? found)
+                  {:kind :info :text "No player data was found in the world."}
+                  {:kind :success
+                   :text (str "Found " found " player" (when (not= 1 found) "s") " in the world: "
+                              imported " new, " updated " with earlier playtime added"
+                              (when (pos? unnamed)
+                                (str ", " unnamed " skipped because their name could not be found"))
+                              ".")})]
+    (r/h-respond (players-table server message))))
 
 (defn uptime-tab
   [_req _user server]

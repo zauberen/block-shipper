@@ -53,19 +53,31 @@
 (def ^:private http-client
   (delay (-> (HttpClient/newBuilder) (.connectTimeout (Duration/ofSeconds 3)) .build)))
 
-(defn lookup-uuid
-  "Resolve NAME's uuid with the Mojang API. Returns nil when it can't be resolved."
-  [name]
+(defn- mojang-profile
+  "The profile json at URL as a map, or nil."
+  [url]
   (try
-    (let [req (-> (HttpRequest/newBuilder (URI. (str "https://api.mojang.com/users/profiles/minecraft/" name)))
+    (let [req (-> (HttpRequest/newBuilder (URI. url))
                   (.timeout (Duration/ofSeconds 5))
                   .build)
           resp (.send ^HttpClient @http-client req (HttpResponse$BodyHandlers/ofString))]
       (when (= 200 (.statusCode resp))
-        (dashed-uuid (get (json/read-str (.body resp)) "id"))))
+        (json/read-str (.body resp))))
     (catch Exception e
-      (log/debug "UUID lookup failed for" name ":" (.getMessage e))
+      (log/debug "Profile lookup failed for" url ":" (.getMessage e))
       nil)))
+
+(defn lookup-uuid
+  "Resolve NAME's uuid with the Mojang API. Returns nil when it can't be resolved."
+  [name]
+  (dashed-uuid (get (mojang-profile (str "https://api.mojang.com/users/profiles/minecraft/" name)) "id")))
+
+(defn lookup-name
+  "Resolve the current name of the player with UUID with the Mojang API, or nil."
+  [uuid]
+  (get (mojang-profile (str "https://sessionserver.mojang.com/session/minecraft/profile/"
+                            (str/replace uuid "-" "")))
+       "name"))
 
 (defn online-mode?
   [server]

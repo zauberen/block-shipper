@@ -107,9 +107,11 @@
     (auth/requires-server (fn [req user srv] (server-page/api-control req user srv "controls")) req slug))
   (cjr/POST "/api/servers/:slug/:action{start|stop|restart}" [slug action :as req]
     (auth/requires-server (fn [req user srv] (server-page/api-control req user srv action)) req slug))
-  (cjr/POST "/api/servers/:slug/lists/:list-type{whitelist|ban}/:op{add|remove}" [slug list-type op :as req]
+  (cjr/POST "/api/servers/:slug/lists/:list-type{whitelist|ban}/:op{add|remove|dismiss}" [slug list-type op :as req]
     (auth/requires-server (fn [req user srv] (lists/api-change req user srv list-type op)) req slug))
-  (cjr/POST "/api/servers/:slug/players/:op{ban|unban|kick|op|deop}" [slug op :as req]
+  (cjr/POST "/api/servers/:slug/players/import" [slug :as req]
+    (auth/requires-server players-page/api-import req slug))
+  (cjr/POST "/api/servers/:slug/players/:op{ban|unban|kick|op|deop|whitelist}" [slug op :as req]
     (auth/requires-server (fn [req user srv] (players-page/api-player-action req user srv op)) req slug))
   (cjr/POST "/api/servers/:slug/properties" [slug :as req]
     (auth/requires-server properties/api-save req slug))

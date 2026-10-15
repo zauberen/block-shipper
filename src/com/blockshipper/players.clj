@@ -15,7 +15,8 @@
 ;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 (ns com.blockshipper.players
-  "Player login sessions (the player_sessions table), used for logins and playtime."
+  "Player login sessions (the player_sessions table), used for logins and playtime,
+  and logins the whitelist refused (rejected_logins)."
   (:require [clojure.string :as str]
             [com.blockshipper.database.db :as db]
             [com.blockshipper.util :as u]))
@@ -50,13 +51,24 @@
   (db/exe-db-stmt ["update player_sessions set uuid = ? where server_id = ? and player_name = ? and uuid is null"
                    uuid server-id player]))
 
+(defn import-session!
+  "Record playtime PLAYER had on SERVER-ID before Block Shipper saw them (read from the
+  world): a closed session of PLAYTIME ms ending at LAST-SEEN."
+  [server-id player uuid last-seen playtime]
+  (db/exe-db-stmt ["insert into player_sessions (server_id, player_name, uuid, joined_at, left_at, imported) values (?, ?, ?, ?, ?, 1)"
+                   server-id player uuid (- last-seen playtime) last-seen]))
+
+;; Imported sessions only say when the player was last seen, which is when they end.
+(def ^:private last-login-sql "max(case when imported = 1 then left_at else joined_at end)")
+
 (defn summary
   "One row per player who has joined SERVER-ID:
-  :player_name :uuid :last_login :playtime (ms) :online (boolean)."
+  :player_name :uuid :last_login :first_joined :playtime (ms) :online (boolean)."
   ([server-id] (summary server-id (u/now-ms)))
   ([server-id now]
    (->> (db/run-db-query
-         [(str "select player_name, max(uuid) as uuid, max(joined_at) as last_login, "
+         [(str "select player_name, max(uuid) as uuid, " last-login-sql " as last_login, "
+               "min(joined_at) as first_joined, "
                "sum(coalesce(left_at, ?) - joined_at) as playtime, "
                "sum(case when left_at is null then 1 else 0 end) as open_sessions "
                "from player_sessions where server_id = ? group by player_name "
@@ -70,7 +82,7 @@
 (defn recent-logins
   "The most recent LIMIT logins for SERVER-ID."
   [server-id limit]
-  (db/run-db-query ["select player_name, joined_at, left_at from player_sessions where server_id = ? order by joined_at desc limit ?"
+  (db/run-db-query ["select player_name, joined_at, left_at from player_sessions where server_id = ? and imported = 0 order by joined_at desc limit ?"
                     server-id limit]))
 
 (defn recent-players
@@ -80,7 +92,7 @@
   (if (empty? server-ids)
     []
     (->> (db/run-db-query
-          (-> [(str "select player_name, max(joined_at) as last_login, "
+          (-> [(str "select player_name, " last-login-sql " as last_login, "
                     "count(distinct case when joined_at >= ? then server_id end) as servers, "
                     "sum(case when left_at is null then 1 else 0 end) as open_sessions "
                     "from player_sessions where server_id in ("
@@ -93,3 +105,34 @@
                  (-> row
                      (assoc :online (pos? (or (:open_sessions row) 0)))
                      (dissoc :open_sessions)))))))
+
+;;; Logins refused by the whitelist
+
+(def ^:private repeat-window-ms
+  "A refused login is logged more than once (by the proxy and the server, or as
+  \"Disconnecting\" and \"lost connection\"); attempts this close count once."
+  10000)
+
+(defn record-rejected-login!
+  "Remember that PLAYER tried to join SERVER-ID and was turned away by the whitelist."
+  ([server-id player uuid] (record-rejected-login! server-id player uuid (u/now-ms)))
+  ([server-id player uuid ts]
+   (if-let [row (first (db/run-db-query ["select * from rejected_logins where server_id = ? and lower(player_name) = lower(?)"
+                                         server-id player]))]
+     (db/exe-db-stmt ["update rejected_logins set player_name = ?, uuid = coalesce(?, uuid), attempts = ?, last_attempt_at = ? where id = ?"
+                      player uuid
+                      (cond-> (:attempts row) (> ts (+ (:last_attempt_at row) repeat-window-ms)) inc)
+                      ts (:id row)])
+     (db/exe-db-stmt ["insert into rejected_logins (server_id, player_name, uuid, attempts, last_attempt_at) values (?, ?, ?, 1, ?)"
+                      server-id player uuid ts]))))
+
+(defn rejected-logins
+  "Players refused by SERVER-ID's whitelist, latest first:
+  :player_name :uuid :attempts :last_attempt_at."
+  [server-id limit]
+  (db/run-db-query ["select player_name, uuid, attempts, last_attempt_at from rejected_logins where server_id = ? order by last_attempt_at desc limit ?"
+                    server-id limit]))
+
+(defn clear-rejected-login!
+  [server-id player]
+  (db/exe-db-stmt ["delete from rejected_logins where server_id = ? and lower(player_name) = lower(?)" server-id player]))

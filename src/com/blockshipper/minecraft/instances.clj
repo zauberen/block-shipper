@@ -138,6 +138,8 @@
                                    (assoc :last-activity (u/now-ms)))))
              (players/close-session! server-id player)
              (notify! server-id {:type :players}))
+    :rejected (players/record-rejected-login! server-id (:player event)
+                                              (or (:uuid event) (get-in @instances [server-id :uuids (:player event)])))
     :stopping (when (= :running (status server-id))
                 (set-state! server-id :stopping))
     nil))

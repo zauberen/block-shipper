@@ -34,3 +34,15 @@
   (is (nil? (p/parse-line "[12:00:00] [Server thread/INFO]: <Steve> Alex joined the game")))
   (is (nil? (p/parse-line "[12:00:00] [Server thread/INFO]: [Steve: Gave 1 dirt]")))
   (is (nil? (p/parse-line "Steve joined the game"))))
+
+(deftest rejected-login-test
+  (is (= {:type :rejected :player "Stranger"}
+         (p/parse-line "[12:00:00] [Server thread/INFO]: Disconnecting Stranger (/127.0.0.1:51234): You are not white-listed on this server!")))
+  (is (= {:type :rejected :player "Stranger"}
+         (p/parse-line "[12:00:00] [Server thread/INFO]: Stranger (/127.0.0.1:51234) lost connection: You are not whitelisted on this server!")))
+  (is (= {:type :rejected :player "Old_Timer" :uuid "069a79f4-44e9-4726-a5be-fca90e38aaf5"}
+         (p/parse-line (str "[12:00:00] [Server thread/INFO]: Disconnecting com.mojang.authlib.GameProfile@1b2c3d"
+                            "[id=069a79f4-44e9-4726-a5be-fca90e38aaf5,name=Old_Timer,properties={},legacy=false]"
+                            " (/127.0.0.1:51234): You are not white-listed on this server!"))))
+  (is (nil? (p/parse-line "[12:00:00] [Server thread/INFO]: Steve lost connection: You are not white-listed on this server!")))
+  (is (nil? (p/parse-line "[12:00:00] [Server thread/INFO]: <Steve> Bob (/1.2.3.4:5) is not whitelisted lol"))))
