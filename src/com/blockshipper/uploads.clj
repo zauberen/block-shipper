@@ -17,20 +17,29 @@
 (ns com.blockshipper.uploads
   "Chunked file uploads (world archives on the create server form).
 
-  The browser announces the file with `start!`, sends it in pieces no larger than
-  `chunk-bytes` with `append!` and then submits the form with the upload id; the
-  handler claims the finished file with `take!`. Pieces stay under the request body
-  limit, so large files also pass reverse proxies with a small body limit (nginx's
-  default is 1 MB). Uploads idle for `stale-ms` are deleted."
-  (:require [clojure.tools.logging :as log])
+  The browser announces the file with `start!`, which answers with the piece size
+  (`chunk-bytes`, the :upload-chunk-mb setting), sends it in pieces of that size with
+  `append!` and then submits the form with the upload id; the handler claims the
+  finished file with `take!`. Small pieces pass reverse proxies with a small body limit
+  (nginx's default is 1 MB). Uploads idle for `stale-ms` are deleted."
+  (:require [clojure.tools.logging :as log]
+            [com.blockshipper.settings :as s])
   (:import (java.io File FileOutputStream InputStream)
-           (java.nio.file Files)
+           (java.nio.channels FileChannel)
+           (java.nio.file Files OpenOption StandardOpenOption)
            (java.nio.file.attribute FileAttribute)
            (java.util UUID)))
 
-(def chunk-bytes
-  "Largest piece accepted by `append!`; matches the request body limit."
-  (* 1024 1024))
+(def max-chunk-mb
+  "Largest allowed :upload-chunk-mb."
+  256)
+
+(defn chunk-bytes
+  "Size of the pieces new uploads are sent in: the :upload-chunk-mb setting (1 MB when
+  it is missing or out of range)."
+  []
+  (let [mb (:upload-chunk-mb (s/get-settings))]
+    (* 1024 1024 (if (and (integer? mb) (<= 1 mb max-chunk-mb)) mb 1))))
 
 (def max-upload-bytes
   "Largest file accepted."
@@ -40,7 +49,8 @@
   "Unfinished or unclaimed uploads untouched for this long are deleted."
   (* 60 60 1000))
 
-;; id -> {:file File :filename str :size long :received long :user-id id :touched ms :lock Object}
+;; id -> {:file File :filename str :size long :received long :chunk-bytes long :user-id id
+;;        :touched ms :lock Object}
 (defonce ^:private uploads (atom {}))
 
 (defn- user-error
@@ -64,7 +74,8 @@
       (delete! u))))
 
 (defn start!
-  "Register an upload of SIZE bytes for USER-ID and return its id."
+  "Register an upload of SIZE bytes for USER-ID. Returns {:id id :chunk-bytes n}; pieces
+  may be up to n bytes."
   [user-id filename size]
   (sweep!)
   (when-not (and (integer? size) (pos? size))
@@ -72,10 +83,18 @@
   (when (> size max-upload-bytes)
     (throw (user-error "The file is too large.")))
   (let [id (str (UUID/randomUUID))
-        file (.toFile (Files/createTempFile "bs-upload" ".part" (make-array FileAttribute 0)))]
-    (swap! uploads assoc id {:file file :filename (str filename) :size size :received 0
+        file (.toFile (Files/createTempFile "bs-upload" ".part" (make-array FileAttribute 0)))
+        ;; Fixed per upload, so changing the setting doesn't break uploads in progress.
+        chunk (chunk-bytes)]
+    (swap! uploads assoc id {:file file :filename (str filename) :size size :received 0 :chunk-bytes chunk
                              :user-id user-id :touched (now) :lock (Object.)})
-    id))
+    {:id id :chunk-bytes chunk}))
+
+(defn piece-limit
+  "Largest request body to accept for a piece of any upload in progress (the setting may
+  have changed since some of them started)."
+  []
+  (reduce max (chunk-bytes) (map :chunk-bytes (vals @uploads))))
 
 (defn info
   "The upload with ID if it belongs to USER-ID, else nil."
@@ -84,13 +103,26 @@
     (when (and u (= user-id (:user-id u)))
       u)))
 
-(defn- read-chunk
-  "Up to `chunk-bytes` from IN; throws when IN holds more."
-  ^bytes [^InputStream in]
-  (let [buf (.readNBytes in (int chunk-bytes))]
-    (when (and (= (alength buf) chunk-bytes) (not= -1 (.read in)))
-      (throw (user-error "The piece is too large.")))
-    buf))
+(defn- copy-piece!
+  "Append IN to FILE, streaming. Returns the number of bytes written; throws when IN
+  holds more than LIMIT bytes."
+  [^File file ^InputStream in limit]
+  (with-open [out (FileOutputStream. file true)]
+    (let [buf (byte-array 65536)]
+      (loop [n 0]
+        (let [r (.read in buf)]
+          (if (neg? r)
+            n
+            (let [n (+ n r)]
+              (when (> n limit)
+                (throw (user-error "The piece is larger than expected.")))
+              (.write out buf 0 r)
+              (recur n))))))))
+
+(defn- truncate!
+  [^File file length]
+  (with-open [ch (FileChannel/open (.toPath file) (into-array OpenOption [StandardOpenOption/WRITE]))]
+    (.truncate ch (long length))))
 
 (defn append!
   "Append the bytes of IN at OFFSET to upload ID. Returns the bytes received so far.
@@ -100,15 +132,16 @@
   (let [u (or (info id user-id) (throw (user-error "Unknown upload.")))]
     (locking (:lock u)
       ;; Re-read: another request may have appended while this one waited for the lock.
-      (let [{:keys [^File file size received]} (or (info id user-id) (throw (user-error "Unknown upload.")))]
+      (let [{:keys [^File file size received chunk-bytes]} (or (info id user-id) (throw (user-error "Unknown upload.")))]
         (if (not= offset received)
           {:conflict received}
-          (let [buf (read-chunk in)
-                total (+ received (alength buf))]
-            (when (> total size)
-              (throw (user-error "The file is larger than announced.")))
-            (with-open [out (FileOutputStream. file true)]
-              (.write out buf))
+          (let [n (try
+                    (copy-piece! file in (min chunk-bytes (- size received)))
+                    (catch Exception e
+                      ;; Drop the partial piece so a retry starts at OFFSET again.
+                      (truncate! file received)
+                      (throw e)))
+                total (+ received n)]
             (swap! uploads update id assoc :received total :touched (now))
             total))))))
 

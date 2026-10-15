@@ -40,7 +40,9 @@
    :nosql-port 6379
    :nosql-host "localhost"
    ;; Enables /api/echo (admins only), which prints raw requests.
-   :debug false})
+   :debug false
+   ;; World archives on the create form are uploaded in pieces of this many MB.
+   :upload-chunk-mb 1})
 
 (defn config-path
   "Where the settings file lives."
@@ -52,7 +54,7 @@
   [:app-name :listen-port :debug
    :minecraft-root-path :hosting-root :backup-root :logs-root :sqlite-db-path
    :mc-mem-min :mc-mem-max :java-cmd :proxy-bind-address
-   :nosql-type :nosql-host :nosql-port])
+   :nosql-type :nosql-host :nosql-port :upload-chunk-mb])
 
 (def restart-keys
   "Settings read once when Block Shipper starts; changing them needs a restart."

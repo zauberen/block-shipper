@@ -138,7 +138,10 @@
       (testing "validation"
         (is (str/includes? (:text (post "/api/global/config" :sid sid
                                         :form (assoc (config-form root) :mc-mem-max "lots")))
-                           "Memory sizes")))
+                           "Memory sizes"))
+        (is (str/includes? (:text (post "/api/global/config" :sid sid
+                                        :form (assoc (config-form root) :upload-chunk-mb "0")))
+                           "upload piece size")))
       (testing "saving writes the file and flags restart-only changes"
         (let [resp (post "/api/global/config" :sid sid
                          :form (assoc (config-form root) :listen-port "9090" :sqlite-db-path (str root "/settings.db")))
@@ -146,7 +149,14 @@
           (is (str/includes? (:text resp) "Restart Block Shipper to apply: Web UI port"))
           (is (= 9090 (:listen-port saved)))
           (is (= "4G" (:mc-mem-max saved)))
-          (is (true? (:debug saved)))))
+          (is (true? (:debug saved)))
+          (testing "a form without the upload piece size saves the default"
+            (is (= 1 (:upload-chunk-mb saved))))))
+      (testing "the upload piece size applies without a restart"
+        (post "/api/global/config" :sid sid
+              :form (assoc (config-form root) :upload-chunk-mb "8" :sqlite-db-path (str root "/settings.db")))
+        (is (= 8 (:upload-chunk-mb (edn/read-string (slurp (s/config-path))))))
+        (is (not (some #{:upload-chunk-mb} (s/pending-restart)))))
       (testing "moderators can't change it"
         (users/create! "mod" "password1" "moderator")
         (is (= 403 (:status (post "/api/global/config" :sid (login "mod") :form (config-form root)))))

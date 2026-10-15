@@ -17,6 +17,7 @@
 (ns com.blockshipper.pages.servers.create
   "Creating a new server (admin only)."
   (:require [clojure.java.io :as io]
+            [clojure.data.json :as json]
             [clojure.string :as str]
             [clojure.tools.logging :as log]
             [com.blockshipper.minecraft.provider :as provider]
@@ -71,8 +72,7 @@
     ;; main.js uploads the chosen world in pieces (data-world-upload) before submitting.
     [:form.card.form {:hx-post "/api/servers" :hx-target "this" :hx-swap "outerHTML"
                       :hx-disabled-elt "find button[type=submit]"
-                      :data-world-upload "/api/uploads"
-                      :data-chunk-size uploads/chunk-bytes}
+                      :data-world-upload "/api/uploads"}
      (ui/errors-alert errors)
      (field "Display name"
             [:input.form-input {:name "display_name" :required true :value (:display_name values)
@@ -208,11 +208,12 @@
   {:status status :headers {"Content-Type" "text/plain; charset=utf-8"} :body msg})
 
 (defn api-upload-start
-  "POST /api/uploads with filename and size; responds with the upload id."
+  "POST /api/uploads with filename and size; responds with {id, chunkSize}."
   [req user]
   (let [{:keys [filename size]} (:params req)]
     (try
-      (r/respond-generic (uploads/start! (:id user) filename (u/parse-int size)) "text/plain")
+      (let [{:keys [id chunk-bytes]} (uploads/start! (:id user) filename (u/parse-int size))]
+        (r/respond-generic (json/write-str {:id id :chunkSize chunk-bytes}) "application/json"))
       (catch clojure.lang.ExceptionInfo e
         (upload-error 400 (user-message e))))))
 
