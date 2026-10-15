@@ -21,12 +21,9 @@
   (:import [java.net URI]))
 
 (def max-body-bytes
-  "Largest request body accepted outside of the paths in `large-body-paths`."
+  "Largest request body accepted. Uploads are sent in pieces of at most this size
+  (see `com.blockshipper.uploads`)."
   (* 1024 1024))
-
-(def large-body-paths
-  "Paths that take uploads (world archives on the create server form)."
-  #{"/api/servers"})
 
 (defn- default-port
   [scheme]
@@ -87,12 +84,12 @@
       (handler req))))
 
 (defn wrap-body-limit
-  "Refuse request bodies larger than `max-body-bytes` (by Content-Length) except on the
-  upload paths, so unauthenticated requests can't make the server buffer huge forms."
+  "Refuse request bodies larger than `max-body-bytes` (by Content-Length), so
+  unauthenticated requests can't make the server buffer huge forms."
   [handler]
   (fn [req]
     (let [length (some-> (get-in req [:headers "content-length"]) str/trim parse-long)]
-      (if (and length (> length max-body-bytes) (not (large-body-paths (:uri req))))
+      (if (and length (> length max-body-bytes))
         {:status 413 :headers {"Content-Type" "text/plain"} :body "Request too large."}
         (handler req)))))
 

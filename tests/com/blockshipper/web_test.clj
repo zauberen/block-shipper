@@ -31,6 +31,7 @@
             [com.blockshipper.servers :as servers]
             [com.blockshipper.stats :as stats]
             [com.blockshipper.test-util :as tu]
+            [com.blockshipper.uploads :as uploads]
             [com.blockshipper.uptime :as uptime]
             [com.blockshipper.users :as users]
             [com.blockshipper.util :as u]))
@@ -42,12 +43,10 @@
   (:sid (session/initialize-session username "ignored")))
 
 (defn create-server!
-  [sid form & {:keys [multipart?]}]
+  [sid form]
   (with-redefs [mcu/download-server-jar (fn [& _] (tu/fake-server-jar))
                 mcu/cached-manifest (fn [] (throw (ex-info "offline" {})))]
-    (let [resp (bs/app (if multipart?
-                         (tu/request :post "/api/servers" :sid sid :multipart form)
-                         (tu/request :post "/api/servers" :sid sid :form form)))]
+    (let [resp (bs/app (tu/request :post "/api/servers" :sid sid :form form))]
       (tu/wait-until #(not= :installing (:state (setup/install-status (:id (servers/by-slug (:name form)))))))
       resp)))
 
@@ -127,29 +126,90 @@
         (is (= (concat (map #(str "S" %) (range 7)) ["Other"])
                (map :label (:series (dash/combined-chart-data many (- now 900000) 15 now)))))))))
 
+(defn- start-upload
+  [sid size]
+  (bs/app (tu/request :post "/api/uploads" :sid sid :form {:filename "world.zip" :size size})))
+
+(defn- put-piece
+  [sid id offset ^bytes piece]
+  (bs/app (tu/request :put (str "/api/uploads/" id) :sid sid :query (str "offset=" offset) :bytes piece)))
+
+(defn upload!
+  "Send BYTES through the upload endpoints in pieces of CHUNK bytes; returns the upload id."
+  [sid ^bytes bytes & {:keys [chunk] :or {chunk uploads/chunk-bytes}}]
+  (let [id (tu/body-str (start-upload sid (alength bytes)))]
+    (loop [offset 0]
+      (when (< offset (alength bytes))
+        (let [resp (put-piece sid id offset (java.util.Arrays/copyOfRange bytes (int offset)
+                                                                          (int (min (alength bytes) (+ offset chunk)))))]
+          (is (= 200 (:status resp)) (tu/body-str resp))
+          (recur (parse-long (tu/body-str resp))))))
+    id))
+
 (deftest create-server-with-world-test
   (let [sid (login "admin")
         form {:display_name "Imported" :name "imported" :mc_version "1.21.4" :eula "1"}]
     (testing "an upload without a world is rejected and no server is created"
-      (let [resp (create-server! sid (assoc form :world_file {:filename "junk.zip"
-                                                               :bytes (wit/zip-bytes {"a.txt" "x"})})
-                                 :multipart? true)]
+      (let [resp (create-server! sid (assoc form :world_upload (upload! sid (wit/zip-bytes {"a.txt" "x"}))))]
         (is (str/includes? (tu/body-str resp) "No Minecraft world"))
         (is (nil? (servers/by-slug "imported")))))
-    (testing "the uploaded world is installed into the new server"
-      (let [resp (create-server! sid (assoc form :world_file {:filename "world.zip"
-                                                               :bytes (wit/zip-bytes {"saves/Old/level.dat" "lvl"})})
-                                 :multipart? true)
+    (testing "a world uploaded in pieces is installed into the new server"
+      (let [archive (wit/zip-bytes {"saves/Old/level.dat" "lvl" "saves/Old/region/r.0.0.mca" (apply str (repeat 3000 "x"))})
+            id (upload! sid archive :chunk 1000)
+            resp (create-server! sid (assoc form :world_upload id))
             server (servers/by-slug "imported")
             dir (servers/server-dir server)]
         (is (= "/admin/servers/imported" (get-in resp [:headers "HX-Redirect"])))
         (is (= "lvl" (slurp (io/file dir "world" "level.dat"))))
-        (is (= "world" (get (props/->map (props/read-props dir)) "level-name")))))
-    (testing "an empty file field creates a server normally"
-      (create-server! sid (assoc form :name "fresh" :world_file {:filename "" :bytes (byte-array 0)})
-                      :multipart? true)
+        (is (= "world" (get (props/->map (props/read-props dir)) "level-name")))
+        (testing "and the upload is consumed"
+          (is (nil? (uploads/info id (:id (users/by-username "admin"))))))))
+    (testing "an upload survives a form with errors, so it isn't sent again"
+      (let [id (upload! sid (wit/zip-bytes {"level.dat" "again"}))
+            resp (create-server! sid (assoc form :name "imported" :world_upload id))]
+        (is (str/includes? (tu/body-str resp) "Already uploaded: world.zip"))
+        (is (str/includes? (tu/body-str resp) id))
+        (create-server! sid (assoc form :name "second" :world_upload id))
+        (is (= "again" (slurp (io/file (servers/server-dir (servers/by-slug "second")) "world" "level.dat"))))))
+    (testing "an unfinished or unknown upload is reported"
+      (let [id (tu/body-str (start-upload sid 10))]
+        (is (str/includes? (tu/body-str (create-server! sid (assoc form :name "partial" :world_upload id)))
+                           "upload didn")))
+      (is (str/includes? (tu/body-str (create-server! sid (assoc form :name "partial" :world_upload "nope")))
+                         "expired"))
+      (is (nil? (servers/by-slug "partial"))))
+    (testing "an empty upload field creates a server normally"
+      (create-server! sid (assoc form :name "fresh" :world_upload ""))
       (is (some? (servers/by-slug "fresh")))
       (is (not (.exists (io/file (servers/server-dir (servers/by-slug "fresh")) "world")))))))
+
+(deftest chunked-upload-test
+  (let [sid (login "admin")]
+    (testing "a retried piece gets 409 with the bytes already received"
+      (let [id (tu/body-str (start-upload sid 6))]
+        (is (= "3" (tu/body-str (put-piece sid id 0 (.getBytes "abc")))))
+        (let [resp (put-piece sid id 0 (.getBytes "abc"))]
+          (is (= 409 (:status resp)))
+          (is (= "3" (tu/body-str resp))))
+        (is (= "6" (tu/body-str (put-piece sid id 3 (.getBytes "def")))))))
+    (testing "more bytes than announced are refused"
+      (let [id (tu/body-str (start-upload sid 2))]
+        (is (= 400 (:status (put-piece sid id 0 (.getBytes "abc")))))))
+    (testing "empty and oversized files are refused up front"
+      (is (= 400 (:status (start-upload sid 0))))
+      (is (= 400 (:status (start-upload sid (inc uploads/max-upload-bytes))))))
+    (testing "pieces over the body limit are refused"
+      (let [id (tu/body-str (start-upload sid (* 4 uploads/chunk-bytes)))]
+        (is (= 413 (:status (put-piece sid id 0 (byte-array (inc uploads/chunk-bytes))))))))
+    (testing "uploads belong to the admin who started them"
+      (users/create! "other" "password123" "admin")
+      (let [id (tu/body-str (start-upload sid 3))]
+        (is (= 400 (:status (put-piece (login "other") id 0 (.getBytes "abc")))))
+        (is (= 204 (:status (bs/app (tu/request :delete (str "/api/uploads/" id) :sid sid)))))
+        (is (= 400 (:status (put-piece sid id 0 (.getBytes "abc")))))))
+    (testing "moderators can't upload"
+      (users/create! "mod" "password123" "moderator")
+      (is (= 403 (:status (start-upload (login "mod") 3)))))))
 
 (deftest moderator-access-test
   (let [admin-sid (login "admin")
@@ -284,9 +344,11 @@
   (testing "oversized form bodies are refused before they are read"
     (is (= 413 (:status (bs/app (tu/request :post "/api/login" :form {:username "admin" :password "admin"}
                                             :headers {"content-length" (str (* 2 1024 1024))}))))))
-  (testing "multipart bodies are only parsed for logged in admins"
-    (let [resp (bs/app (tu/request :post "/api/servers" :multipart {:name "x"}))]
-      (is (= 302 (:status resp)))))
+  (testing "the create form has no body limit exemption (worlds are uploaded in pieces)"
+    (is (= 413 (:status (bs/app (tu/request :post "/api/servers" :sid (login "admin") :form {:name "x"}
+                                            :headers {"content-length" (str (* 2 1024 1024))}))))))
+  (testing "uploads need a logged in admin"
+    (is (= 302 (:status (bs/app (tu/request :post "/api/uploads" :form {:filename "w.zip" :size 3}))))))
   (testing "logins without a username or password fail cleanly"
     (is (= 401 (:status (bs/app (tu/request :post "/api/login" :form {:username "admin"})))))
     (is (= 401 (:status (bs/app (tu/request :post "/api/login" :form {})))))))

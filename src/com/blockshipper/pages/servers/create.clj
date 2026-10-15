@@ -27,6 +27,7 @@
             [com.blockshipper.servers :as servers]
             [com.blockshipper.settings :as s]
             [com.blockshipper.ui :as ui]
+            [com.blockshipper.uploads :as uploads]
             [com.blockshipper.util :as u]))
 
 (defn- versions
@@ -61,13 +62,17 @@
    ["whitelist" "Whitelist — only listed players can join"]])
 
 (defn create-form
-  [values errors]
+  "The create server form. VALUES may carry :world_upload, the id of a world archive
+  that was uploaded before validation failed, so it isn't sent again."
+  [values errors & [user]]
   (let [settings (s/get-settings)
-        versions (versions)]
+        versions (versions)
+        staged (when-let [id (:world_upload values)] (uploads/info id (:id user)))]
+    ;; main.js uploads the chosen world in pieces (data-world-upload) before submitting.
     [:form.card.form {:hx-post "/api/servers" :hx-target "this" :hx-swap "outerHTML"
-                      :hx-encoding "multipart/form-data"
                       :hx-disabled-elt "find button[type=submit]"
-                      "hx-on::xhr:progress" "const p=this.querySelector('progress.upload-progress'); if(p&&event.detail.lengthComputable&&this.elements['world_file'].files.length){p.hidden=false; p.value=Math.round(event.detail.loaded*100/event.detail.total)}"}
+                      :data-world-upload "/api/uploads"
+                      :data-chunk-size uploads/chunk-bytes}
      (ui/errors-alert errors)
      (field "Display name"
             [:input.form-input {:name "display_name" :required true :value (:display_name values)
@@ -96,11 +101,17 @@
      (field "Hosting" (select "host_mode" host-mode-options (or (:host_mode values) "published")))
      (field "Player list" (select "list_mode" list-mode-options (or (:list_mode values) "blacklist")))
      (field "World (optional)"
-            [:input.form-input {:type "file" :name "world_file"
+            ;; No name: the file is sent by main.js, only its upload id goes with the form.
+            [:input.form-input {:type "file" :data-world-file true
                                 :accept ".zip,.jar,.tar,.gz,.tgz,.tar.gz,.7z"}]
-            (str "An existing world as a " world-import/supported-formats
-                 " archive. The folder containing level.dat is used. Leave empty to generate a new world."))
-     [:progress.upload-progress {:max 100 :value 0 :hidden true}]
+            (if staged
+              (str "Already uploaded: " (:filename staged) ". Choose another file to replace it.")
+              (str "An existing world as a " world-import/supported-formats
+                   " archive. The folder containing level.dat is used. Leave empty to generate a new world.")))
+     [:input {:type "hidden" :name "world_upload" :value (when staged (:world_upload values))}]
+     [:div.upload-status {:hidden true}
+      [:progress.upload-progress {:max 100 :value 0}]
+      [:span.upload-status-text.form-hint {:role "status" :aria-live "polite"}]]
      [:label.checkbox
       [:input {:type "checkbox" :name "eula" :value "1" :required true}]
       [:span "I accept the "
@@ -134,20 +145,25 @@
   "Minecraft version ids, e.g. 1.21.4 or 25w14a."
   #"[A-Za-z0-9._ -]{1,40}")
 
-(defn- uploaded-file
-  "The uploaded world archive, or nil when none was chosen."
-  [params]
-  (let [{:keys [tempfile size]} (:world_file params)]
-    (when (and tempfile (pos? (or size 0)))
-      tempfile)))
+(defn- user-message
+  [^clojure.lang.ExceptionInfo e]
+  (or (:user-message (ex-data e)) (.getMessage e)))
 
 (defn- prepare-world
-  "Extract the uploaded world. Returns [prepared nil] or [nil error-message]."
-  [upload]
-  (try
-    [(world-import/prepare upload) nil]
-    (catch clojure.lang.ExceptionInfo e
-      [nil (or (:user-message (ex-data e)) (.getMessage e))])))
+  "Claim and extract the uploaded world. Returns [upload prepared nil] or
+  [upload nil error-message]; upload is the claimed file (nil when claiming failed)."
+  [upload-id user]
+  (let [[upload error] (try [(:file (uploads/take! upload-id (:id user))) nil]
+                            (catch clojure.lang.ExceptionInfo e [nil (user-message e)]))]
+    (if error
+      [nil nil error]
+      (try
+        [upload (world-import/prepare upload) nil]
+        (catch clojure.lang.ExceptionInfo e
+          [upload nil (user-message e)])
+        (catch Exception e
+          (io/delete-file upload true)
+          (throw e))))))
 
 (defn api-create
   [req user]
@@ -160,14 +176,14 @@
                  (conj "That doesn't look like a version.")
                  (and (:mem_min attrs) (not (re-matches mem-re (:mem_min attrs)))) (conj "Memory must look like 512M or 4G.")
                  (and (:mem_max attrs) (not (re-matches mem-re (:mem_max attrs)))) (conj "Memory must look like 512M or 4G.")
-                 (not= "1" (:eula params)) (conj "You must accept the Minecraft EULA."))]
+                 (not= "1" (:eula params)) (conj "You must accept the Minecraft EULA."))
+        upload-id (some-> (:world_upload params) str/trim not-empty)]
     (if (seq errors)
-      (r/h-respond (create-form attrs errors))
-      (let [upload (uploaded-file params)
-            [world world-error] (when upload (prepare-world upload))]
+      (r/h-respond (create-form (assoc attrs :world_upload upload-id) errors user))
+      (let [[upload world world-error] (when upload-id (prepare-world upload-id user))]
         (try
           (if world-error
-            (r/h-respond (create-form attrs [world-error]))
+            (r/h-respond (create-form attrs [world-error] user))
             (let [version (:mc_version attrs)
                   server (servers/create! (-> attrs
                                               (dissoc :mc_version)
@@ -184,3 +200,38 @@
           (finally
             (world-import/cleanup! world)
             (when upload (io/delete-file upload true))))))))
+
+;; Chunked world uploads (see com.blockshipper.uploads and bsUploadWorld in main.js).
+
+(defn- upload-error
+  [status msg]
+  {:status status :headers {"Content-Type" "text/plain; charset=utf-8"} :body msg})
+
+(defn api-upload-start
+  "POST /api/uploads with filename and size; responds with the upload id."
+  [req user]
+  (let [{:keys [filename size]} (:params req)]
+    (try
+      (r/respond-generic (uploads/start! (:id user) filename (u/parse-int size)) "text/plain")
+      (catch clojure.lang.ExceptionInfo e
+        (upload-error 400 (user-message e))))))
+
+(defn api-upload-chunk
+  "PUT /api/uploads/:id?offset=N with the raw bytes of one piece; responds with the
+  bytes received so far (409 with that count when OFFSET doesn't match)."
+  [req user id]
+  (let [offset (u/parse-int (get-in req [:params :offset]))]
+    (try
+      (if (nil? offset)
+        (upload-error 400 "Missing offset.")
+        (let [result (uploads/append! id (:id user) offset (:body req))]
+          (if (map? result)
+            (upload-error 409 (str (:conflict result)))
+            (r/respond-generic (str result) "text/plain"))))
+      (catch clojure.lang.ExceptionInfo e
+        (upload-error 400 (user-message e))))))
+
+(defn api-upload-delete
+  [_req user id]
+  (uploads/discard! id (:id user))
+  {:status 204 :body ""})

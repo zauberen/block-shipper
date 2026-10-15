@@ -108,32 +108,13 @@
            v
            (do (Thread/sleep 50) (recur))))))))
 
-(def ^:private multipart-boundary "----BlockShipperTestBoundary")
-
-(defn- multipart-body
-  "Encode PARTS as multipart/form-data. Values are strings, or
-  {:filename s :bytes byte-array} for file fields."
-  ^bytes [parts]
-  (let [out (java.io.ByteArrayOutputStream.)
-        w (fn [^String s] (.write out (.getBytes s "UTF-8")))]
-    (doseq [[k v] parts]
-      (w (str "--" multipart-boundary "\r\n"))
-      (if (map? v)
-        (do (w (str "Content-Disposition: form-data; name=\"" (name k) "\"; filename=\"" (:filename v) "\"\r\n"
-                    "Content-Type: application/octet-stream\r\n\r\n"))
-            (.write out ^bytes (:bytes v)))
-        (w (str "Content-Disposition: form-data; name=\"" (name k) "\"\r\n\r\n" v)))
-      (w "\r\n"))
-    (w (str "--" multipart-boundary "--\r\n"))
-    (.toByteArray out)))
-
 (defn request
   "Build a ring request. FORM is a map of form fields sent urlencoded in the body; a
-  sequential value sends the field once per element. MULTIPART is sent as
-  multipart/form-data instead (see `multipart-body`)."
-  [method uri & {:keys [form multipart sid headers query]}]
+  sequential value sends the field once per element. BYTES is sent as the raw body
+  (application/octet-stream) instead."
+  [method uri & {:keys [form bytes sid headers query]}]
   (let [body (cond
-               multipart (multipart-body multipart)
+               bytes bytes
                form (.getBytes ^String
                                (clojure.string/join "&" (for [[k vs] form
                                                               v (if (sequential? vs) vs [vs])]
@@ -148,9 +129,10 @@
              :remote-addr "127.0.0.1"
              :headers (merge {"host" "mc.example.com:8081"}
                              (when sid {"cookie" (str "bs-session-id=" sid)})
-                             (when body {"content-type" (if multipart
-                                                          (str "multipart/form-data; boundary=" multipart-boundary)
-                                                          "application/x-www-form-urlencoded")})
+                             (when body {"content-type" (if bytes
+                                                          "application/octet-stream"
+                                                          "application/x-www-form-urlencoded")
+                                         "content-length" (str (alength ^bytes body))})
                              headers)}
       query (assoc :query-string query)
       body (assoc :body (java.io.ByteArrayInputStream. ^bytes body)))))

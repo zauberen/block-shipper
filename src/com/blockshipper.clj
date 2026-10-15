@@ -20,7 +20,6 @@
             [ring.adapter.jetty :as jetty]
             [ring.middleware.params :refer [wrap-params]]
             [ring.middleware.keyword-params :refer [wrap-keyword-params]]
-            [ring.middleware.multipart-params :refer [wrap-multipart-params]]
             [ring.middleware.resource :refer [wrap-resource]]
             [ring.middleware.content-type :refer [wrap-content-type]]
             [ring.middleware.cookies :refer [wrap-cookies]]
@@ -90,10 +89,14 @@
   (cjr/GET "/api/servers/sidebar" req
     (auth/requires-user layout/sidebar-response req))
   (cjr/POST "/api/servers" req
-    ;; The only form with uploads; multipart bodies are parsed only after the login check.
-    (auth/requires-admin (fn [req user]
-                           ((-> #(create/api-create % user) wrap-keyword-params wrap-multipart-params) req))
-                         req))
+    (auth/requires-admin create/api-create req))
+  ;; World archives for the create form, sent in pieces under the request body limit.
+  (cjr/POST "/api/uploads" req
+    (auth/requires-admin create/api-upload-start req))
+  (cjr/PUT "/api/uploads/:id" [id :as req]
+    (auth/requires-admin (fn [req user] (create/api-upload-chunk req user id)) req))
+  (cjr/DELETE "/api/uploads/:id" [id :as req]
+    (auth/requires-admin (fn [req user] (create/api-upload-delete req user id)) req))
   (cjr/POST "/api/servers/stop-all" req
     (auth/requires-admin stop-all req))
   (cjr/GET "/api/servers/:slug/log-tail" [slug :as req]
