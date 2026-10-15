@@ -34,6 +34,17 @@
     :stopping "Stopping…"
     (if auto? "Sleeping — join to start" "Offline")))
 
+(defn- server-address
+  [req server]
+  (str (layout/public-host req) ":" (:exposed_port server)))
+
+(defn- card-min-width
+  "CSS width a card needs to show the longest address without clipping:
+  ~0.6rem per monospace character plus the card padding and copy button."
+  [req servers]
+  (let [chars (transduce (map #(count (server-address req %))) max 0 servers)]
+    (str "calc(" chars " * 0.6rem + 9.5rem)")))
+
 (defn server-card
   [req server message]
   (let [status (inst/status (:id server))
@@ -46,7 +57,7 @@
        (ui/status-dot status)
        [:span.widget-name (servers/display-name server)]]
       [:span.public-status (public-status-label status auto? players)]]
-     (ui/copy-field (str (layout/public-host req) ":" (:exposed_port server)))
+     (ui/copy-field (server-address req server))
      (when start-button?
        [:div.public-footer
         [:button.btn.btn-primary {:hx-post (str "/public/servers/" (:name server) "/start")
@@ -63,7 +74,8 @@
                                    :hx-select "#public-grid"
                                    :hx-disinherit "*"
                                    :hx-trigger "every 15s"
-                                   :hx-swap "outerHTML"}
+                                   :hx-swap "outerHTML"
+                                   :style (str "--card-min: " (card-min-width req servers))}
      (if (seq servers)
        (for [server servers] (server-card req server nil))
        [:p.muted "There are no public servers yet."])]))

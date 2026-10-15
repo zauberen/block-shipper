@@ -488,7 +488,10 @@ details.advanced summary { cursor: pointer; color: var(--text-secondary); font-w
 
 /* Copy field */
 .copy-field { display: flex; align-items: stretch; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden; margin: 0.75rem 0; }
-.copy-value { flex: 1; padding: 0.5rem 0.75rem; background: var(--bg-primary); font-size: 0.95rem; overflow: hidden; text-overflow: ellipsis; }
+.copy-value {
+    flex: 1; min-width: 0; padding: 0.5rem 0.75rem; background: var(--bg-primary); font-size: 0.95rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .copy-button { border: none; border-left: 1px solid var(--border-color); background: var(--bg-tertiary); color: var(--text-primary); padding: 0 1rem; cursor: pointer; font-weight: 600; }
 .copy-button:hover { background: var(--accent-green); color: #062b14; }
 
@@ -501,7 +504,12 @@ body.public-body { overflow: auto; height: auto; min-height: 100vh; }
 .public-logo .app-logo-icon { width: 2.5rem; height: 2.5rem; }
 .public-login { margin-left: auto; }
 .public-hint { margin: -1.25rem 0 1.5rem; }
-.public-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 1.5rem; }
+/* --card-min is set inline from the longest address so cards are wide enough to show it in full;
+   only a single column narrower than that clips it. */
+.public-grid {
+    display: grid; gap: 1.5rem;
+    grid-template-columns: repeat(auto-fill, minmax(min(100%, max(320px, var(--card-min, 320px))), 1fr));
+}
 .public-card { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.25rem 1.5rem; }
 .public-card .widget-header { flex-direction: column; align-items: flex-start; gap: 0.25rem; margin-bottom: 0.75rem; }
 .public-card .widget-name { overflow-wrap: anywhere; }

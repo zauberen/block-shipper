@@ -161,5 +161,5 @@
   "A read-only value with a copy button."
   [value]
   [:div.copy-field
-   [:code.copy-value value]
+   [:code.copy-value {:title value} value]
    [:button.copy-button {:type "button" :data-copy value} "Copy"]])
