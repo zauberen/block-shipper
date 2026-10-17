@@ -111,5 +111,41 @@
       (write-player! world alex 1600000000000 20)
       (is (= [{:uuid alex :last-seen 1700000000000 :playtime 3600000}] (pi/world-players server))))))
 
+(deftest legacy-layout-test
+  (testing "worlds from before 1.7.6 name player files after the player"
+    (let [server (make-server)
+          id (:id server)
+          dir (servers/server-dir server)
+          world (io/file dir "world")
+          legacy! (fn [n ts stats]
+                    (let [dat (io/file world "players" (str n ".dat"))]
+                      (io/make-parents dat)
+                      (spit dat "nbt")
+                      (.setLastModified dat ts))
+                    (when stats
+                      (let [f (io/file world "stats" (str n ".json"))]
+                        (io/make-parents f)
+                        (spit f (json/write-str stats))
+                        (.setLastModified f ts))))]
+      (legacy! "Herobrine" 1500000000000 {"stat.playOneMinute" 72000})
+      (legacy! "Jeb_" 1500000100000 nil)
+      ;; Alex was converted by a newer server; the old name file must not count twice.
+      (legacy! "alex" 1400000000000 {"stat.playOneMinute" 72000})
+      (write-player! world alex 1700000000000 72000)
+      (spit (io/file dir "usercache.json") (json/write-str [{"name" "Alex" "uuid" alex "expiresOn" "x"}]))
+      (spit (io/file world "players" "not a name.dat") "nbt")
+      (with-redefs [sync/lookup-name (fn [_] (throw (ex-info "no lookups" {})))]
+        (is (= {:found 3 :imported 3 :updated 0 :unnamed 0} (pi/import! server)))
+        (let [summary (into {} (map (juxt :player_name identity)) (players/summary id))]
+          (is (= #{"Alex" "Herobrine" "Jeb_"} (set (keys summary))))
+          (is (= (* 60 60 1000) (:playtime (summary "Herobrine"))))
+          (is (= 1500000000000 (:last_login (summary "Herobrine"))))
+          (is (nil? (:uuid (summary "Herobrine"))))
+          (is (= 0 (:playtime (summary "Jeb_"))))
+          (is (= (* 60 60 1000) (:playtime (summary "Alex")))))
+        (testing "importing again changes nothing"
+          (is (= {:found 3 :imported 0 :updated 0 :unnamed 0} (pi/import! server)))
+          (is (= 3 (count (players/summary id)))))))))
+
 (deftest no-world-test
   (is (= {:found 0 :imported 0 :updated 0 :unnamed 0} (pi/import! (make-server)))))
