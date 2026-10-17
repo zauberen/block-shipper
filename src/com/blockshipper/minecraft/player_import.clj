@@ -19,7 +19,9 @@
   Block Shipper ran the server (an imported world or server folder).
 
   Each player has <world>/playerdata/<uuid>.dat and usually <world>/stats/<uuid>.json,
-  which holds their total playtime. Neither has the player's name: that comes from the
+  which holds their total playtime (<world>/players/data and <world>/players/stats
+  since Minecraft 26.1; before 1.7.6 the files were <world>/players/<name>.dat and
+  <world>/stats/<name>.json). Neither has the player's name: that comes from the
   server's usercache.json and player lists, or the Mojang API for online-mode uuids."
   (:require [clojure.data.json :as json]
             [clojure.java.io :as io]
@@ -64,29 +66,66 @@
                   (get data "stat.playOneMinute"))]        ; before 1.13
     (when (number? ticks) (* 50 (long ticks)))))
 
-(defn- uuid-files
-  "{uuid file} for files in DIR named <uuid><EXT>."
-  [dir ext]
-  (into {}
-        (for [^java.io.File f (.listFiles (io/file dir))
-              :let [n (.getName f)]
-              :when (and (.isFile f) (str/ends-with? n ext))
-              :let [uuid (str/lower-case (subs n 0 (- (count n) (count ext))))]
-              :when (re-matches uuid-re uuid)]
-          [uuid f])))
+(defn- player-files
+  "{key file} for files named <name><EXT> in DIRS, keyed by (KEY-FN name), which
+  returns nil for files to skip. The newest wins when a world has both the old and
+  the new layout."
+  [dirs ext key-fn]
+  (reduce (fn [m [k ^java.io.File f]]
+            (if (some-> ^java.io.File (m k) .lastModified (>= (.lastModified f)))
+              m
+              (assoc m k f)))
+          {}
+          (for [dir dirs
+                ^java.io.File f (.listFiles (io/file dir))
+                :let [n (.getName f)]
+                :when (and (.isFile f) (str/ends-with? n ext))
+                :let [k (key-fn (subs n 0 (- (count n) (count ext))))]
+                :when k]
+            [k f])))
+
+(defn- uuid-key
+  [n]
+  (let [uuid (str/lower-case n)]
+    (when (re-matches uuid-re uuid) uuid)))
+
+(defn- name-key
+  [n]
+  (when (pl/valid-player-name? n) (str/lower-case n)))
+
+(defn- file-name
+  "The player name a <name>.dat or <name>.json file is named after."
+  [^java.io.File f]
+  (str/replace (.getName f) #"\.[^.]*$" ""))
+
+(defn- merge-files
+  "[{K :last-seen :playtime :file}] for the keys of the {key file} maps DATA and STATS."
+  [data stats]
+  (for [k (sort (distinct (concat (keys data) (keys stats))))
+        :let [files (keep #(get % k) [data stats])]]
+    {:key k
+     :file (first files)
+     :last-seen (apply max (map #(.lastModified ^java.io.File %) files))
+     :playtime (or (some-> (get stats k) read-json playtime-ms) 0)}))
 
 (defn world-players
   "Players with data in SERVER's world: [{:uuid :last-seen (ms) :playtime (ms)}].
+  Worlds from before Minecraft 1.7.6 name the files after the player instead
+  (<world>/players/<name>.dat and, from 1.7.2, <world>/stats/<name>.json); those
+  players come last, as {:name :last-seen :playtime} with no uuid.
   Last seen is when their files were last saved, which happens when they leave."
   [server]
   (let [world (world-dir server)
-        data (uuid-files (io/file world "playerdata") ".dat")
-        stats (uuid-files (io/file world "stats") ".json")]
-    (vec (for [uuid (sort (distinct (concat (keys data) (keys stats))))
-               :let [files (keep #(get % uuid) [data stats])]]
-           {:uuid uuid
-            :last-seen (apply max (map #(.lastModified ^java.io.File %) files))
-            :playtime (or (some-> (get stats uuid) read-json playtime-ms) 0)}))))
+        data-dirs [(io/file world "playerdata") (io/file world "players" "data")]
+        stats-dirs [(io/file world "stats") (io/file world "players" "stats")]
+        by-uuid (merge-files (player-files data-dirs ".dat" uuid-key)
+                             (player-files stats-dirs ".json" uuid-key))
+        by-name (merge-files (player-files [(io/file world "players")] ".dat" name-key)
+                             (player-files [(io/file world "stats")] ".json" name-key))]
+    (vec (concat (for [p by-uuid]
+                   (-> p (assoc :uuid (:key p)) (dissoc :key :file)))
+                 (for [p by-name]
+                   (-> p (assoc :name (file-name (:file p))) (dissoc :key :file)))))))
 
 (defn known-names
   "{lower case uuid name} from everything that pairs SERVER's players with their uuid."
@@ -128,24 +167,33 @@
                    (let [n (sync/lookup-name uuid)]
                      (when (pl/valid-player-name? n) n))))
         found (world-players server)
-        outcomes (for [{:keys [uuid last-seen playtime]} found]
-                   (let [player (or (:player_name (by-uuid uuid)) (names uuid) (lookup uuid))
-                         existing (or (by-uuid uuid) (some-> player str/lower-case by-name))]
+        ;; Lower case names already handled, so a player with both uuid and (older)
+        ;; name files is only counted once.
+        seen (atom #{})
+        outcomes (for [{:keys [uuid name last-seen playtime]} found]
+                   (let [player (if uuid
+                                  (or (:player_name (by-uuid uuid)) (names uuid) (lookup uuid))
+                                  name)
+                         existing (or (some-> uuid by-uuid) (some-> player str/lower-case by-name))
+                         duplicate? (some-> player str/lower-case (@seen))]
+                     (some->> player str/lower-case (swap! seen conj))
                      (cond
                        (nil? player) :unnamed
+                       duplicate? :duplicate
                        (nil? existing) (do (players/import-session! id player uuid last-seen playtime)
                                            :imported)
                        :else (let [missing (- playtime (or (:playtime existing) 0))]
-                               (when-not (:uuid existing)
+                               (when (and uuid (not (:uuid existing)))
                                  (players/set-uuid! id (:player_name existing) uuid))
                                (if (> missing top-up-threshold-ms)
-                                 (do (players/import-session! id (:player_name existing) uuid
+                                 (do (players/import-session! id (:player_name existing)
+                                                              (or uuid (:uuid existing))
                                                               (:first_joined existing) missing)
                                      :updated)
                                  :unchanged)))))
         counts (frequencies (doall outcomes))]
     (log/info "Imported players from the world of" (:name server) ":" counts)
-    {:found (count found)
+    {:found (- (count found) (get counts :duplicate 0))
      :imported (get counts :imported 0)
      :updated (get counts :updated 0)
      :unnamed (get counts :unnamed 0)}))
