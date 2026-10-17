@@ -95,5 +95,21 @@
         (is (empty? @lookups) "known players need no lookup")
         (is (= 3 (count (players/summary id))))))))
 
+(deftest players-layout-test
+  (testing "worlds saved by Minecraft 26.1+ keep player files under players/"
+    (let [server (make-server)
+          world (io/file (servers/server-dir server) "world")
+          dat (io/file world "players" "data" (str alex ".dat"))
+          stats (io/file world "players" "stats" (str alex ".json"))]
+      (io/make-parents dat)
+      (io/make-parents stats)
+      (spit dat "nbt")
+      (spit stats (json/write-str {"stats" {"minecraft:custom" {"minecraft:play_time" 72000}}}))
+      (.setLastModified dat 1700000000000)
+      (.setLastModified stats 1700000000000)
+      ;; A leftover from before the upgrade: older and with less playtime.
+      (write-player! world alex 1600000000000 20)
+      (is (= [{:uuid alex :last-seen 1700000000000 :playtime 3600000}] (pi/world-players server))))))
+
 (deftest no-world-test
   (is (= {:found 0 :imported 0 :updated 0 :unnamed 0} (pi/import! (make-server)))))

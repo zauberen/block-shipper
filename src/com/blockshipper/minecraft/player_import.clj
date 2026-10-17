@@ -19,7 +19,8 @@
   Block Shipper ran the server (an imported world or server folder).
 
   Each player has <world>/playerdata/<uuid>.dat and usually <world>/stats/<uuid>.json,
-  which holds their total playtime. Neither has the player's name: that comes from the
+  which holds their total playtime (<world>/players/data and <world>/players/stats
+  since Minecraft 26.1). Neither has the player's name: that comes from the
   server's usercache.json and player lists, or the Mojang API for online-mode uuids."
   (:require [clojure.data.json :as json]
             [clojure.java.io :as io]
@@ -65,23 +66,29 @@
     (when (number? ticks) (* 50 (long ticks)))))
 
 (defn- uuid-files
-  "{uuid file} for files in DIR named <uuid><EXT>."
-  [dir ext]
-  (into {}
-        (for [^java.io.File f (.listFiles (io/file dir))
-              :let [n (.getName f)]
-              :when (and (.isFile f) (str/ends-with? n ext))
-              :let [uuid (str/lower-case (subs n 0 (- (count n) (count ext))))]
-              :when (re-matches uuid-re uuid)]
-          [uuid f])))
+  "{uuid file} for files named <uuid><EXT> in DIRS; the newest wins when a world has
+  both the old and the new layout."
+  [dirs ext]
+  (reduce (fn [m [uuid ^java.io.File f]]
+            (if (some-> ^java.io.File (m uuid) .lastModified (>= (.lastModified f)))
+              m
+              (assoc m uuid f)))
+          {}
+          (for [dir dirs
+                ^java.io.File f (.listFiles (io/file dir))
+                :let [n (.getName f)]
+                :when (and (.isFile f) (str/ends-with? n ext))
+                :let [uuid (str/lower-case (subs n 0 (- (count n) (count ext))))]
+                :when (re-matches uuid-re uuid)]
+            [uuid f])))
 
 (defn world-players
   "Players with data in SERVER's world: [{:uuid :last-seen (ms) :playtime (ms)}].
   Last seen is when their files were last saved, which happens when they leave."
   [server]
   (let [world (world-dir server)
-        data (uuid-files (io/file world "playerdata") ".dat")
-        stats (uuid-files (io/file world "stats") ".json")]
+        data (uuid-files [(io/file world "playerdata") (io/file world "players" "data")] ".dat")
+        stats (uuid-files [(io/file world "stats") (io/file world "players" "stats")] ".json")]
     (vec (for [uuid (sort (distinct (concat (keys data) (keys stats))))
                :let [files (keep #(get % uuid) [data stats])]]
            {:uuid uuid
