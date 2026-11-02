@@ -20,6 +20,7 @@
             [clojure.data.json :as json]
             [clojure.string :as str]
             [clojure.tools.logging :as log]
+            [com.blockshipper.minecraft.player-import :as player-import]
             [com.blockshipper.minecraft.provider :as provider]
             [com.blockshipper.minecraft.setup :as setup]
             [com.blockshipper.minecraft.world-import :as world-import]
@@ -107,7 +108,8 @@
             (if staged
               (str "Already uploaded: " (:filename staged) ". Choose another file to replace it.")
               (str "An existing world as a " world-import/supported-formats
-                   " archive. The folder containing level.dat is used. Leave empty to generate a new world.")))
+                   " archive. The folder containing level.dat is used, and its players are added to the Players tab."
+                   " Leave empty to generate a new world.")))
      [:input {:type "hidden" :name "world_upload" :value (when staged (:world_upload values))}]
      [:div.upload-status {:hidden true}
       [:progress.upload-progress {:max 100 :value 0}]
@@ -193,6 +195,9 @@
               (when world
                 (world-import/install! world (servers/server-dir server)))
               (setup/install-async! server version)
+              ;; Players who joined the world elsewhere show up with their playtime.
+              (when world
+                (player-import/import-async! server))
               (servers/notify-changed! (:id server))
               {:status 200
                :headers {"HX-Redirect" (str "/admin/servers/" (:name server))}

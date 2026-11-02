@@ -197,3 +197,13 @@
      :imported (get counts :imported 0)
      :updated (get counts :updated 0)
      :unnamed (get counts :unnamed 0)}))
+
+(defn import-async!
+  "Run `import!` for SERVER in the background (name lookups can take a while).
+  Returns the future; failures are logged."
+  [server]
+  (future
+    (try
+      (import! server)
+      (catch Exception e
+        (log/warn e "Could not import players from the world of" (:name server))))))

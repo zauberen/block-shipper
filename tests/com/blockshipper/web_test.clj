@@ -167,14 +167,25 @@
         (is (str/includes? (tu/body-str resp) "No Minecraft world"))
         (is (nil? (servers/by-slug "imported")))))
     (testing "a world uploaded in pieces is installed into the new server"
-      (let [archive (wit/zip-bytes {"saves/Old/level.dat" "lvl" "saves/Old/region/r.0.0.mca" (apply str (repeat 3000 "x"))})
-            id (upload! sid archive :chunk 1000)
-            resp (create-server! sid (assoc form :world_upload id))
-            server (servers/by-slug "imported")
-            dir (servers/server-dir server)]
-        (is (= "/admin/servers/imported" (get-in resp [:headers "HX-Redirect"])))
-        (is (= "lvl" (slurp (io/file dir "world" "level.dat"))))
-        (is (= "world" (get (props/->map (props/read-props dir)) "level-name")))
+      (let [uuid "11111111-1111-4111-8111-111111111111"
+            archive (wit/zip-bytes {"saves/Old/level.dat" "lvl" "saves/Old/region/r.0.0.mca" (apply str (repeat 3000 "x"))
+                                    (str "saves/Old/playerdata/" uuid ".dat") "nbt"
+                                    (str "saves/Old/stats/" uuid ".json")
+                                    (json/write-str {"stats" {"minecraft:custom" {"minecraft:play_time" 72000}}})})
+            id (upload! sid archive :chunk 1000)]
+        (with-redefs [com.blockshipper.minecraft.player-sync/lookup-name (constantly "Alex")]
+          (let [resp (create-server! sid (assoc form :world_upload id))
+                server (servers/by-slug "imported")
+                dir (servers/server-dir server)]
+            (is (= "/admin/servers/imported" (get-in resp [:headers "HX-Redirect"])))
+            (is (= "lvl" (slurp (io/file dir "world" "level.dat"))))
+            (is (= "world" (get (props/->map (props/read-props dir)) "level-name")))
+            (testing "and its players are imported in the background"
+              (let [deadline (+ (u/now-ms) 5000)
+                    summary #(players/summary (:id server))]
+                (while (and (empty? (summary)) (< (u/now-ms) deadline))
+                  (Thread/sleep 20))
+                (is (= [["Alex" uuid 3600000]] (map (juxt :player_name :uuid :playtime) (summary))))))))
         (testing "and the upload is consumed"
           (is (nil? (uploads/info id (:id (users/by-username "admin"))))))))
     (testing "an upload survives a form with errors, so it isn't sent again"
